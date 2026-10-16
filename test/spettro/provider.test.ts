@@ -107,3 +107,9 @@ test("placeholder cannot accidentally be sent as an inference model", () => {
 	assert.throws(() => f.config.streamSimple!({ id: CATALOG_PLACEHOLDER } as never, { messages: [] } as never), /catalog/i);
 	assert.equal(f.streams(), 0);
 });
+
+test("sign-in is the only credential path: no API-key environment configuration is declared", () => {
+	const f = fixture();
+	assert.equal(f.config.apiKey, undefined);
+	assert.ok(f.config.oauth);
+});

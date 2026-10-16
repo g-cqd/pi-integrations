@@ -15,3 +15,8 @@ capture/
 captures/
 flows/
 container-state/
+
+# local client secrets: never commit these
+agy-oauth-client-secret
+*.agy-secret
+secrets/

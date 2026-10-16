@@ -14,7 +14,7 @@ import {
 } from "./oauth.ts";
 
 export const PROVIDER_ID = "claude-subscription";
-export const DISPLAY_NAME = "Claude OAuth (experimental)";
+export const DISPLAY_NAME = "Claude Subscription (experimental)";
 
 interface Dependencies {
 	models: NonNullable<ProviderConfig["models"]>;
@@ -64,7 +64,6 @@ export function createProviderConfig(deps: Dependencies): ProviderConfig {
 		name: DISPLAY_NAME,
 		baseUrl: "https://api.anthropic.com",
 		api: "anthropic-messages",
-		apiKey: "$CLAUDE_SUBSCRIPTION_ACCESS_TOKEN",
 		oauth: {
 			name: DISPLAY_NAME,
 			isSubscription: true,

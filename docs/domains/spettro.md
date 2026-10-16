@@ -39,7 +39,8 @@ into user messages.
 Default API origin: `https://api.spettro.app`. Optional `SPETTRO_API_URL`
 selects a custom API base; it must be HTTPS or explicit HTTP loopback for local
 development. It receives authentication traffic and any stored key, so trust
-the configured destination. `SPETTRO_API_KEY` is an optional key fallback.
+the configured destination. There is no API-key fallback: sign-in is the only
+credential path.
 
 This package does not read or modify `~/.spettro/keys.enc`. Live behavior of
 the newly modularized implementation remains to be verified separately.

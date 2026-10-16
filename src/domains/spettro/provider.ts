@@ -35,7 +35,6 @@ export function createSpettroProvider(deps: Dependencies): ProviderConfig {
 		name: "Spettro Subscription",
 		baseUrl: base + "/v1",
 		api: "openai-completions",
-		apiKey: "$SPETTRO_API_KEY",
 		authHeader: true,
 		models: [placeholderModel],
 		oauth: {

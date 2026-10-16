@@ -122,3 +122,9 @@ test("refresh returns replacement credentials and uses the supplied abort signal
 	assert.ok(f.calls[0].signal instanceof AbortSignal);
 	assert.equal(f.config.oauth!.getApiKey(credentials), response.access_token);
 });
+
+test("sign-in is the only credential path: no API-key or token environment configuration is declared", () => {
+	const f = fixture();
+	assert.equal(f.config.apiKey, undefined);
+	assert.ok(f.config.oauth);
+});

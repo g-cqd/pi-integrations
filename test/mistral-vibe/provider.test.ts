@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "bun:test";
-import { createMistralVibeProvider } from "../../src/domains/mistral-vibe/provider.ts";
+import { createMistralVibeProvider, MODEL_ID, selectMistralLarge4 } from "../../src/domains/mistral-vibe/provider.ts";
 import { sequenceFetch, virtualClock, loginCallbacks } from "../support/fixtures.ts";
 
 function fixture(payloads: unknown[]) {
@@ -108,4 +108,22 @@ test("Mistral domain has no Keychain or first-party identity override", () => {
 	assert.equal(f.config.headers, undefined);
 	assert.equal(f.calls.length, 0);
 	assert.equal(f.config.oauth!.isSubscription, undefined, "browser sign-in is not proof of subscription billing");
+});
+
+test("the domain offers exactly Mistral Large 4", () => {
+	assert.equal(MODEL_ID, "mistral-large-4");
+	const catalog = [{ id: "mistral-small-2603" }, { id: "mistral-large-4", extra: 1 }, { id: "codestral-2508" }];
+	assert.deepEqual(selectMistralLarge4(catalog), [{ id: "mistral-large-4", extra: 1 }]);
+});
+
+test("a catalog without a unique Large 4 fails loudly instead of offering another model", () => {
+	assert.throws(() => selectMistralLarge4([{ id: "mistral-small-2603" }]), /no unique "mistral-large-4"/);
+	assert.throws(() => selectMistralLarge4([]), /found 0/);
+	assert.throws(() => selectMistralLarge4([{ id: "mistral-large-4" }, { id: "mistral-large-4" }]), /found 2/);
+});
+
+test("Vibe sign-in is the only credential path: no API-key configuration is declared", () => {
+	const f = fixture([]);
+	assert.equal(f.config.apiKey, undefined);
+	assert.ok(f.config.oauth);
 });

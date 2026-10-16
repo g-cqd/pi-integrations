@@ -20,14 +20,8 @@ jobs:
       - run: bun run test:coverage
       - name: Offline provider registration
         run: |
-          # --list-models only lists providers with available credentials, so
-          # the smoke test passes synthetic env keys. Offline mode keeps the
-          # refresh credential-gated, so no network request is made.
-          CLAUDE_SUBSCRIPTION_ACCESS_TOKEN=ci-synthetic \
-          SPETTRO_API_KEY=ci-synthetic \
-          MISTRAL_VIBE_API_KEY=ci-synthetic \
-          bun node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
-            --offline --no-mcp --no-extensions -e . --list-models > /tmp/pi-integration-models.txt
-          grep -qE "^claude-subscription[[:space:]]" /tmp/pi-integration-models.txt
-          grep -qE "^spettro[[:space:]]spettro-catalog-loading" /tmp/pi-integration-models.txt
-          grep -qE "^mistral-vibe[[:space:]]" /tmp/pi-integration-models.txt
+          # Writes synthetic OAuth credentials into a throwaway Pi config dir
+          # (the domains accept no API-key configuration) and checks that all
+          # five domains register. Offline mode makes no network request.
+          PI_CMD="bun node_modules/@earendil-works/pi-coding-agent/dist/cli.js" \
+            ./scripts/smoke-registration.sh

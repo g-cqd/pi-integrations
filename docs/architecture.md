@@ -1,6 +1,6 @@
 # Architecture and reusable components
 
-The package has three Pi extension entry points. Each domain registers exactly
+The package has five Pi extension entry points (Claude, Codex, Antigravity, Spettro, Mistral/Vibe). Each domain registers exactly
 one distinct provider and can be filtered out without preventing the others
 from registering. Shared modules contain no provider endpoints or persistent
 credential state.
@@ -22,6 +22,11 @@ The `pi-integrations/shared` package subpath exports:
 | `waitFor` | Cancellable production delay with listener cleanup. |
 | `record`, `validSecret` | Small runtime validation helpers. |
 | `apiKeyCredentials` | API-key bookkeeping for Pi's legacy OAuth store; does not create a refresh token or real expiry contract. |
+| `expiryAfter` | Absolute expiry for a token lifetime, reduced by the smaller of five minutes or 10%; rejects non-positive or unrepresentable lifetimes. |
+| `jwtPayload` | Reads a claim from a token the provider just issued. Never verifies the signature; only for routing claims such as an account id. |
+| `startLoopback`, `awaitAuthorizationInput` | One-shot OAuth callback server (exact path, loopback `Host` only, state-checked, first valid callback wins, static pages) and the callback-versus-paste race. Binding failures reject so callers can fall back to pasting. |
+| `iterateSse` | Bounded Server-Sent Events reader: per-event size limit, all line endings, split CRLF/UTF-8, abort that interrupts a pending read. |
+| `SLOW_DOWN_INCREMENT_MS` | RFC 8628 `slow_down` handling: `pollUntil` lengthens its interval by 5 seconds when a poll reports `slowDown`. |
 
 Example using the same production orchestrator with a virtual clock:
 
@@ -56,7 +61,11 @@ by this layer, not allocation already performed inside the transport runtime.
 - Claude and Mistral/Vibe share PKCE generation. Both polling domains share
   the same timing/cancellation implementation. All domains use the same HTTP boundary.
 - Pi owns persistence, model runtime, API conversion, event streams, pricing
-  estimates, and scheduling refreshes.
+  estimates, and scheduling refreshes. The Antigravity domain is the exception for
+  the inference stream: it builds the request with Pi's exported Google helpers and
+  streams `cloudcode-pa` itself, because Pi's Google adapter rejects a custom fetch.
+- No domain accepts API-key configuration. A provider declares `oauth` and no
+  `apiKey`, which Pi treats as sign-in only; the contract suite enforces this.
 - No singleton tokens, global login attempts, or domain-to-domain credentials
   are stored in this package.
 
@@ -74,7 +83,8 @@ It does not simulate the complete Pi streaming implementation or live provider.
 
 1. Add `src/domains/<name>/provider.ts` with a dependency-injected configuration
    factory, and a small `index.ts` for Pi runtime imports/registration.
-2. Choose a unique provider ID and document credential/billing semantics.
+2. Choose a unique provider ID and document credential/billing semantics. Offer
+   sign-in only: no `apiKey`, no key or token read from the environment.
 3. Reuse shared primitives only where the protocol actually matches. Do not
    force an API-key exchange into an OAuth refresh model.
 4. Write failing flow/validation tests first; use shared synthetic fixtures.

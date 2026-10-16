@@ -9,6 +9,22 @@ import {
 } from "../../shared/index.ts";
 
 export const PROVIDER_ID = "mistral-vibe";
+
+/**
+ * The one model this domain offers. Its API name is `mistral-large-4` on
+ * Mistral's price page (see docs/pricing.md), and Pi's catalog carries the same
+ * id with a 1M-token context, reasoning, and image input.
+ */
+export const MODEL_ID = "mistral-large-4";
+
+/** Keep only Mistral Large 4. Throws if the catalog lacks it, rather than offering something else. */
+export function selectMistralLarge4<T extends { id: string }>(models: readonly T[]): T[] {
+	const selected = models.filter((model) => model.id === MODEL_ID);
+	if (selected.length !== 1) {
+		throw new Error(`Pi's Mistral catalog has no unique "${MODEL_ID}" entry (found ${selected.length}); update Pi or this domain.`);
+	}
+	return selected;
+}
 const CONSOLE = "https://console.mistral.ai";
 const AUTH_API = CONSOLE + "/api";
 
@@ -28,7 +44,6 @@ export function createMistralVibeProvider(deps: Dependencies): ProviderConfig {
 		name: "Mistral Vibe (experimental)",
 		baseUrl: "https://api.mistral.ai",
 		api: "mistral-conversations",
-		apiKey: "$MISTRAL_VIBE_API_KEY",
 		models: deps.models,
 		streamSimple: deps.streamSimple,
 		oauth: {

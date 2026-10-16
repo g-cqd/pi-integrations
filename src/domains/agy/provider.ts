@@ -1,0 +1,113 @@
+/**
+ * Antigravity (`agy`) subscription provider: Google sign-in only, no API-key
+ * configuration. The model catalog is read live from the account (nothing is
+ * guessed), and inference runs through this domain's own `cloudcode-pa` stream.
+ */
+import type { OAuthLoginCallbacks } from "@earendil-works/pi-ai/compat";
+import type { ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import { generatePKCE, validSecret, type HttpOptions } from "../../shared/index.ts";
+import { fetchAvailableModels, loadCodeAssist, resolveBaseUrl, type AvailableModel } from "./cloudcode.ts";
+import {
+	buildAuthorizeUrl, exchangeAuthorizationCode, parseAuthorizationInput, refreshCredentials, requireClientSecret,
+	type AgyCredentials,
+} from "./oauth.ts";
+import { API_ID, createAgyStreamSimple, encodeApiKey } from "./stream.ts";
+
+export const PROVIDER_ID = "agy-subscription";
+export const DISPLAY_NAME = "Antigravity Subscription (experimental)";
+export const CATALOG_PLACEHOLDER = "agy-catalog-loading";
+const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+/** Used only when the server reports no limit; these are not verified service limits. */
+const FALLBACK_CONTEXT = 128000;
+const FALLBACK_MAX_OUTPUT = 8192;
+
+interface Dependencies extends HttpOptions {
+	env?: Record<string, string | undefined>;
+	now?: () => number;
+	clientSecret?: () => string | undefined;
+	/** Override the inference stream (tests). Defaults to this domain's cloudcode stream. */
+	streamSimple?: NonNullable<ProviderConfig["streamSimple"]>;
+}
+
+function randomState(): string {
+	return Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64url");
+}
+
+export function toModelConfig(model: AvailableModel, baseUrl: string): ProviderModelConfig {
+	return {
+		id: model.id,
+		name: model.preview ? `${model.displayName} (preview)` : model.displayName,
+		api: API_ID, baseUrl,
+		input: model.supportsImages ? ["text", "image"] : ["text"],
+		reasoning: model.supportsThinking,
+		cost: ZERO_COST, // a subscription is not billed per token, so cost is unknown, not free
+		contextWindow: model.maxTokens ?? FALLBACK_CONTEXT,
+		maxTokens: model.maxOutputTokens ?? FALLBACK_MAX_OUTPUT,
+	};
+}
+
+export function createAgyProvider(deps: Dependencies = {}): ProviderConfig {
+	const env = deps.env ?? process.env;
+	const base = resolveBaseUrl(env);
+	const now = deps.now ?? Date.now;
+	const oauthOptions = (signal?: AbortSignal) => ({ fetchImpl: deps.fetchImpl, signal, now, clientSecret: deps.clientSecret });
+	const streamSimple = deps.streamSimple ?? createAgyStreamSimple({ baseUrl: base, fetchImpl: deps.fetchImpl, now });
+
+	const placeholder: ProviderModelConfig = {
+		id: CATALOG_PLACEHOLDER, name: "Sign in / refresh Antigravity model catalog", api: API_ID, baseUrl: base,
+		input: ["text"], reasoning: false, cost: ZERO_COST, contextWindow: FALLBACK_CONTEXT, maxTokens: FALLBACK_MAX_OUTPUT,
+	};
+
+	async function login(callbacks: OAuthLoginCallbacks) {
+		callbacks.signal?.throwIfAborted();
+		requireClientSecret(oauthOptions()); // fail before opening a browser
+		const { verifier, challenge } = await generatePKCE();
+		callbacks.signal?.throwIfAborted();
+		const state = randomState();
+		callbacks.onAuth({
+			url: buildAuthorizeUrl({ state, codeChallenge: challenge }),
+			instructions: "Sign in with the Google account that has your Antigravity subscription, then paste the authorization code shown on the final page. Do not share it.",
+		});
+		const pasted = await callbacks.onPrompt({ message: "Paste the authorization code from the success page:", placeholder: "<authorization code>" });
+		callbacks.signal?.throwIfAborted();
+		const parsed = parseAuthorizationInput(pasted, state);
+		if (!parsed) throw new Error("Invalid authorization response. Paste the authorization code (or the full redirect URL) from this sign-in, or restart /login.");
+		callbacks.onProgress?.("Exchanging authorization code…");
+		const credentials = await exchangeAuthorizationCode({ code: parsed.code, codeVerifier: verifier, ...oauthOptions(callbacks.signal) });
+		callbacks.onProgress?.("Looking up your Antigravity project…");
+		const account = await loadCodeAssist(credentials.access, { baseUrl: base, fetchImpl: deps.fetchImpl, signal: callbacks.signal });
+		return { ...credentials, projectId: account.projectId, ...(account.tierId ? { tierId: account.tierId } : {}) };
+	}
+
+	return {
+		name: DISPLAY_NAME,
+		baseUrl: base,
+		api: API_ID,
+		models: [placeholder],
+		oauth: {
+			name: DISPLAY_NAME,
+			isSubscription: true,
+			login,
+			refreshToken: (credentials, signal) => refreshCredentials(credentials as AgyCredentials, oauthOptions(signal)),
+			getApiKey: (credentials) => {
+				const projectId = (credentials as AgyCredentials).projectId;
+				return typeof projectId === "string" ? encodeApiKey(credentials.access, projectId) : JSON.stringify({ token: credentials.access });
+			},
+		},
+		refreshModels: async (context) => {
+			if (!context.allowNetwork) return [placeholder];
+			const credential = context.credential as { access?: unknown; projectId?: unknown } | undefined;
+			if (!credential || !validSecret(credential.access) || typeof credential.projectId !== "string") return [placeholder];
+			const { models, defaultModelId } = await fetchAvailableModels(credential.access, {
+				baseUrl: base, projectId: credential.projectId, fetchImpl: deps.fetchImpl, signal: context.signal,
+			});
+			if (models.length === 0) return [placeholder];
+			const ordered = [...models].sort((a, b) => Number(b.id === defaultModelId) - Number(a.id === defaultModelId));
+			return ordered.map((model) => toModelConfig(model, base));
+		},
+		streamSimple: (model, context, options) => {
+			if (model.id === CATALOG_PLACEHOLDER) throw new Error("Antigravity catalog not loaded; sign in and refresh models.");
+			return streamSimple(model, context, options);
+		},
+	};
+}

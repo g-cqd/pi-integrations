@@ -1,0 +1,126 @@
+# Antigravity (`agy`) domain
+
+Provider ID: `agy-subscription`. Login label: **Antigravity Subscription (experimental)**.
+Sign-in only: there is no API-key configuration.
+
+**Setup:** one input. The Antigravity app's OAuth client secret is **not** in
+this repository; supply it from the environment or a local file first (see
+[the client secret](#the-client-secret)).
+
+## Sign-in
+
+The flow is the one the shipped `agy` CLI uses for its **Google OAuth** method. Its
+authorization link was captured from the CLI itself, in an isolated profile that
+never signed in, and the URL builder is pinned to it by a test:
+
+- `https://accounts.google.com/o/oauth2/auth` with `access_type=offline`,
+  `prompt=consent`, PKCE S256, the Desktop client
+  `1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com`,
+  and scopes `cloud-platform userinfo.email userinfo.profile cclog
+  experimentsandconfigs aicode openid`.
+- `redirect_uri=https://antigravity.google/oauth-callback`, a hosted page that shows
+  the authorization code for you to **paste into Pi**. No local port is used.
+- Exchange at `https://oauth2.googleapis.com/token`, which requires the client secret.
+
+After the exchange the domain calls `v1internal:loadCodeAssist` to find your Cloud
+Code project and tier and stores the project with the credential, because inference
+requests must carry it. If the account has no project, sign-in stops with guidance
+to finish onboarding once in the `agy` CLI. Refresh keeps the project; Google normally
+keeps the refresh token, and a rotated one is adopted when sent.
+
+The CLI's other method, "Use a Google Cloud project", is **not implemented**. Google's
+device-code flow does not work for this client (it answers `invalid_client`).
+
+## The client secret
+
+Google's token endpoint refuses this Desktop client without its secret: an anonymous
+probe answers `client_secret is missing`. The secret ships inside the closed-source
+`agy` binary, so it is a credential of the Antigravity **app**, not of any user.
+
+**It is not bundled in this repository**, in any encoding. Supply it at run time,
+resolved in this order (blank counts as unset):
+
+1. `AGY_OAUTH_CLIENT_SECRET` (environment variable).
+2. `AGY_OAUTH_CLIENT_SECRET_FILE`, or by default
+   `~/.config/pi-integrations/agy-oauth-client-secret` (a file whose trimmed content
+   is the secret). `~` is expanded.
+
+```sh
+# once per machine, outside any repository
+install -d -m 700 ~/.config/pi-integrations
+printf '%s' "$SECRET" > ~/.config/pi-integrations/agy-oauth-client-secret
+chmod 600 ~/.config/pi-integrations/agy-oauth-client-secret
+```
+
+To read it from your own installation, look for a `GOCSPX-` string in the `agy`
+binary, for example
+`strings "$(command -v agy)" | grep -o 'GOCSPX-[A-Za-z0-9_-]*'`. It may contain more
+than one; test each against the token endpoint with a bogus code, where the correct
+pair answers `invalid_grant` and a wrong one `invalid_client`. Keep the value out of
+shell history, logs, and this repository. Sign-in checks for the secret **before**
+opening a browser link and fails with these instructions if it is missing or malformed.
+
+The secret is never stored in credentials, never logged, and never echoed in errors
+(tests assert all three). Google's documentation says an installed application's
+secret is not treated as confidential, which is why this is an app credential rather
+than a user credential, but redistributing one is still your call; see [terms](#terms).
+
+## Models
+
+The catalog is read live from your account (`v1internal:fetchAvailableModels`) when
+Pi refreshes models, using the server's own agent-model groups, display names, image
+and thinking flags, and limits. Until then a placeholder that cannot be sent is shown.
+When the server reports no limit, a context of 128000 and an output of 8192 are used;
+those are **not** verified limits. Costs are zero meaning unknown, since a
+subscription is not billed per token. The reasoning variant (for example `-low` or
+`-high`) is part of the model id, so Pi's reasoning level is not forwarded; only
+thought parts are requested.
+
+## Inference
+
+Pi's built-in Google adapter cannot be used: it drives the `@google/genai` SDK and
+rejects a custom `fetch`. This domain therefore:
+
+1. builds the standard Gemini request with Pi's own exported helpers
+   (`convertMessages`, `convertTools`, stop-reason and thought-signature helpers);
+2. wraps it in the `v1internal` envelope
+   `{project, requestId, model, userAgent, requestType, userPromptId, request}`;
+3. streams `POST /v1internal:streamGenerateContent?alt=sse` with a bounded SSE
+   reader and unwraps each `response`;
+4. assembles Pi events with the same semantics as the built-in adapter: text and
+   thinking blocks, tool calls with signatures, usage, and stop reasons.
+
+The default host is `https://daily-cloudcode-pa.googleapis.com`, the one the shipped
+CLI actually calls. Set `AGY_API_URL=https://cloudcode-pa.googleapis.com` to use the
+production host constant also present in the binary. No request is retried.
+
+## Failures
+
+Because live behavior is unverified, every rejection is described rather than
+swallowed: HTTP status, a hint, Google's status code, a redacted truncated message,
+the request or trace id, and `retry-after`. Access tokens, refresh tokens, and the
+client secret are redacted from provider messages.
+
+## Evidence and its limits
+
+| Fact | Source |
+| --- | --- |
+| Authorization URL, hosted paste page | captured from the CLI (isolated profile, no sign-in) |
+| Token endpoint needs the secret; Desktop client; no device flow | anonymous probes of Google's endpoints |
+| Envelope, project lookup, and model-list schemas | protobuf descriptors embedded in the binary |
+| Endpoint paths and the daily host | the CLI's own request log of one real turn |
+| Backend accepts `parametersJsonSchema`, thought parts, function-call ids | same descriptors |
+
+**Not verified**, and the first things to check on a first live sign-in: that Google
+accepts this client's token exchange and refresh with the secret; that `cloudcode-pa`
+accepts this client's identity (`ideType: ANTIGRAVITY`, `userAgent`, `requestType:
+"agent"`, `userPromptId`, and the request headers, which could not be captured); the
+shape of real stream chunks end to end; refresh at real expiry; quota behavior; and
+the daily versus production host. The tests exercise all of this against synthetic
+data and Pi's real conversion helpers only.
+
+## Terms
+
+This uses a first-party client identity outside its own application, the same
+category of risk as the Claude subscription gate and the Codex client. Google's
+current terms for it have not been verified here. Read them before signing in.

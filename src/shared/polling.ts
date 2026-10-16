@@ -10,7 +10,11 @@ export async function waitFor(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 
-export type PollResult<T> = { state: "pending" } | { state: "complete"; value: T };
+/** RFC 8628 section 3.5: on `slow_down` the client adds this much to its polling interval. */
+export const SLOW_DOWN_INCREMENT_MS = 5000;
+
+/** `slowDown` asks the orchestrator to lengthen the interval before the next poll. */
+export type PollResult<T> = { state: "pending"; slowDown?: boolean } | { state: "complete"; value: T };
 export interface PollOptions<T> {
 	deadline: number;
 	intervalMs: number;
@@ -34,12 +38,14 @@ export async function pollUntil<T>(opts: PollOptions<T>): Promise<T> {
 		if (now() >= opts.deadline) throw new Error("Browser sign-in timed out; restart /login.");
 	};
 	let delay = opts.delayFirst ?? false;
+	let intervalMs = opts.intervalMs;
 	while (true) {
 		check();
-		if (delay) { await sleep(Math.min(opts.intervalMs, opts.deadline - now()), opts.signal); check(); }
+		if (delay) { await sleep(Math.min(intervalMs, opts.deadline - now()), opts.signal); check(); }
 		const result = await opts.poll();
 		check();
 		if (result.state === "complete") return result.value;
+		if (result.slowDown) intervalMs += SLOW_DOWN_INCREMENT_MS;
 		opts.onPending?.();
 		delay = true;
 	}

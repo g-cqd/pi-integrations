@@ -9,8 +9,9 @@ bun test
 bun run test:coverage
 ```
 
-The domain suites can be run independently through test:claude, test:spettro,
-test:mistral-vibe, test:shared, and test:contracts.
+The domain suites can be run independently through test:claude, test:codex,
+test:agy, test:spettro, test:mistral-vibe, test:shared, and test:contracts.
+Run `bun run verify:pricing` (network) after touching a model catalog.
 
 Use red-first tests and synthetic fixtures. Do not make real provider requests
 or access local credential stores in automated tests/CI. Never commit captures,

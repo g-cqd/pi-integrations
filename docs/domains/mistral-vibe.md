@@ -26,7 +26,7 @@ is empty and the refresh callback retains the API key. Its distant timestamp is
 bookkeeping, not a provider-issued key lifetime. Re-login may create another key;
 manage/revoke keys through Mistral's supported account controls.
 
-Optional `MISTRAL_VIBE_API_KEY` supplies a key without the browser flow.
+There is no API-key configuration: browser sign-in is the only credential path.
 The domain does not read Vibe's Keychain, environment file, or session state.
 The old personal Keychain bridge is not included.
 
@@ -43,8 +43,11 @@ This is protocol adaptation based on source, not a claim of byte-identical
 behavior or a published compatibility guarantee. Unlike that source's bounded
 transient poll retries, this version fails immediately on a poll transport error.
 
-Inference delegates to Pi's **Mistral Conversations** implementation and its
-bundled model catalog. That is not a reimplementation of Vibe's inference client.
+The domain offers exactly one model, **Mistral Large 4** (`mistral-large-4`, verified
+against Mistral's price page; see [pricing](../pricing.md)). It fails loudly at
+registration if Pi's catalog stops carrying it, rather than offering another model.
+Inference delegates to Pi's **Mistral Conversations** implementation (which posts to
+`/v1/chat/completions`, the endpoint Vibe's own SDK client uses). That is not a reimplementation of Vibe's inference client.
 API-key eligibility for those models/endpoints, live login/inference, and Vibe
 subscription billing have **not** been verified. Source availability alone does
 not establish third-party access permission or subscription entitlement.

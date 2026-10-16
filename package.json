@@ -2,7 +2,7 @@
   "name": "pi-integrations",
   "version": "0.1.0",
   "private": true,
-  "description": "Modular Pi integrations for Claude OAuth, Spettro, and Mistral Vibe browser sign-in, with reusable authentication components.",
+  "description": "Modular Pi integrations for Claude, Codex, and Antigravity subscription sign-in plus Spettro and Mistral Vibe browser sign-in, with reusable authentication components. No API-key configuration.",
   "type": "module",
   "license": "MIT",
   "author": "Gigi (g-cqd)",
@@ -18,7 +18,10 @@
     "pi-package",
     "pi-extension",
     "oauth",
-    "claude"
+    "claude",
+    "codex",
+    "antigravity",
+    "mistral"
   ],
   "packageManager": "bun@1.4.3",
   "engines": {
@@ -32,7 +35,10 @@
     "test:mistral-vibe": "bun test test/mistral-vibe",
     "test:shared": "bun test test/shared",
     "test:contracts": "bun test test/package",
-    "test:coverage": "bun test --coverage"
+    "test:coverage": "bun test --coverage",
+    "verify:pricing": "bun scripts/verify-pricing.ts",
+    "test:codex": "bun test test/codex",
+    "test:agy": "bun test test/agy"
   },
   "files": [
     "src/",
@@ -47,11 +53,15 @@
     "./domains/claude": "./src/domains/claude/provider.ts",
     "./domains/claude/oauth": "./src/domains/claude/oauth.ts",
     "./domains/spettro": "./src/domains/spettro/provider.ts",
-    "./domains/mistral-vibe": "./src/domains/mistral-vibe/provider.ts"
+    "./domains/mistral-vibe": "./src/domains/mistral-vibe/provider.ts",
+    "./domains/codex": "./src/domains/codex/provider.ts",
+    "./domains/agy": "./src/domains/agy/provider.ts"
   },
   "pi": {
     "extensions": [
       "./src/domains/claude/index.ts",
+      "./src/domains/codex/index.ts",
+      "./src/domains/agy/index.ts",
       "./src/domains/spettro/index.ts",
       "./src/domains/mistral-vibe/index.ts"
     ]

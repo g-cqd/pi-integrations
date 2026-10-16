@@ -23,6 +23,17 @@ commitment is currently offered.
 - Provider-owned schemas remain separately validated. Shared helpers are not a
   substitute for authorization, endpoint validation, or least-privilege consent.
 - Claude's requested permissions are broad and not minimized.
+- No domain accepts API-key configuration. Spettro and Mistral/Vibe still *receive*
+  a service-issued key at sign-in, which Pi stores like any credential.
+- Codex binds a one-shot callback server on `127.0.0.1:1455` during browser sign-in:
+  exact path only, loopback `Host` only, state-checked, first valid callback wins,
+  static pages. Antigravity binds no port.
+- The Antigravity app's OAuth client secret is **never committed, in any encoding**.
+  It is read at run time from `AGY_OAUTH_CLIENT_SECRET` or
+  `~/.config/pi-integrations/agy-oauth-client-secret` (`AGY_OAUTH_CLIENT_SECRET_FILE`
+  overrides the path), and a test fails if the tree contains a secret-shaped literal.
+  It is never stored in credentials, logged, or echoed, and provider messages are
+  redacted of tokens.
 - Spettro custom API bases receive authentication traffic and stored API keys.
   Only use destinations you trust. Browser links must be HTTPS but Spettro's
   returned browser hostname is not currently pinned to an allowlist.
