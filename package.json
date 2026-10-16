@@ -30,6 +30,7 @@
   "scripts": {
     "test": "bun test",
     "check": "bunx --bun tsc --noEmit",
+    "ci": "./scripts/ci.sh",
     "test:claude": "bun test test/claude",
     "test:spettro": "bun test test/spettro",
     "test:mistral-vibe": "bun test test/mistral-vibe",

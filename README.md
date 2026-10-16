@@ -189,9 +189,14 @@ dependencies have their own behavior and policies. See [SECURITY.md](SECURITY.md
 Checked development setup: **Bun 1.4.3, Pi 1.3.0**.
 
 ```sh
-bun install --frozen-lockfile --ignore-scripts
-bun run check
-bun test
+bun run ci        # install (frozen lockfile) + type-check + tests + offline smoke test
+```
+
+`bun run ci` mirrors `.github/workflows/ci.yml` exactly, so verification does not
+depend on hosted Actions being available.
+
+```sh
+bun test           # tests only
 bun run test:coverage
 ```
 
