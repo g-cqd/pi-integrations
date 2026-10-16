@@ -242,6 +242,6 @@ test("a revoked refresh token fails once with guidance and without leaking it", 
 });
 
 // ---------------------------------------------------------------------------
-// The bundled secret is stored as a clearly announced base64 value.
+// The client secret is supplied at run time and never committed.
 // ---------------------------------------------------------------------------
 

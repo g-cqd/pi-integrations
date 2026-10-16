@@ -199,6 +199,8 @@ Prices inherited from Pi's catalogs can be re-checked against the vendors'
 official pages with `bun run verify:pricing` (network; see [pricing](docs/pricing.md)).
 Notes on Codex and Antigravity sign-in are in
 [the login investigation](docs/investigations/codex-and-agy-login.md).
+[Harness proxy](docs/harness-proxy.md) explains how those protocol claims were
+established from real agent traffic, and how to redo that safely.
 
 Domain commands: `bun run test:claude`, `bun run test:codex`, `bun run test:agy`,
 `bun run test:spettro`, `bun run test:mistral-vibe`, `bun run test:shared`,
