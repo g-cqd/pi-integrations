@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.3"
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run check
+      - run: bun run test:coverage
+      - name: Offline provider registration
+        run: |
+          # --list-models only lists providers with available credentials, so
+          # the smoke test passes synthetic env keys. Offline mode keeps the
+          # refresh credential-gated, so no network request is made.
+          CLAUDE_SUBSCRIPTION_ACCESS_TOKEN=ci-synthetic \
+          SPETTRO_API_KEY=ci-synthetic \
+          MISTRAL_VIBE_API_KEY=ci-synthetic \
+          bun node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
+            --offline --no-mcp --no-extensions -e . --list-models > /tmp/pi-integration-models.txt
+          grep -qE "^claude-subscription[[:space:]]" /tmp/pi-integration-models.txt
+          grep -qE "^spettro[[:space:]]spettro-catalog-loading" /tmp/pi-integration-models.txt
+          grep -qE "^mistral-vibe[[:space:]]" /tmp/pi-integration-models.txt

@@ -1,0 +1,17 @@
+node_modules/
+coverage/
+.DS_Store
+.env
+.env.*
+*.log
+*.pem
+*.key
+*.p12
+*.tgz
+.pi/
+auth.json
+.credentials.json
+capture/
+captures/
+flows/
+container-state/
