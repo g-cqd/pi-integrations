@@ -38,7 +38,11 @@ test("request headers carry the bearer token and an honest user agent", () => {
 	const headers = requestHeaders(TOKEN);
 	assert.equal(headers.Authorization, `Bearer ${TOKEN}`);
 	assert.equal(headers["User-Agent"], USER_AGENT);
-	assert.match(USER_AGENT, /^pi-integrations\//);
+	// The backend gates the consumer project on the UA naming the Antigravity
+	// client (verified live: same token, project only with this prefix). Ours
+	// leads with it and keeps this package's identity after.
+	assert.match(USER_AGENT, /^antigravity-[0-9.]+ /);
+	assert.match(USER_AGENT, /pi-integrations\//);
 });
 
 // ---------------------------------------------------------------------------

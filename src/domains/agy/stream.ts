@@ -10,9 +10,10 @@
  * tool calls with thought signatures, usage, stop reasons).
  *
  * The envelope field names come from descriptors embedded in the `agy` binary.
- * Which optional fields the backend requires from this client, and whether it
- * accepts this client identity, are unverified; rejections are described with a
- * credential-safe report (see describeFailure).
+ * The client identity is verified for account/project discovery (the backend
+ * gates on the User-Agent, which cloudcode.ts sets to the Antigravity client);
+ * which optional fields the backend requires here remains unverified, and
+ * rejections are described with a credential-safe report (see describeFailure).
  */
 import {
 	calculateCost, createAssistantMessageEventStream,

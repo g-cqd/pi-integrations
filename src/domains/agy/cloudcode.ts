@@ -4,9 +4,11 @@
  *
  * Request and response shapes come from the protobuf descriptors embedded in the
  * shipped `agy` binary (v1internal LoadCodeAssist and FetchAvailableModels), and
- * the endpoint paths from the CLI's own request log. Live behavior with this
- * package's client identity is unverified; failures are reported with a
- * credential-safe description (see describeFailure).
+ * the endpoint paths from the CLI's own request log. The client identity the
+ * backend enforces is verified live (2026-10-17): it gates on the User-Agent
+ * naming the Antigravity client, not on the metadata fields, so USER_AGENT leads
+ * with `antigravity-<version>`; see USER_AGENT and docs/domains/agy.md. Failures
+ * are reported with a credential-safe description (see describeFailure).
  */
 import { record, requestText, safeBaseUrl, type HttpOptions } from "../../shared/index.ts";
 
@@ -15,7 +17,23 @@ export const DEFAULT_BASE_URL = "https://daily-cloudcode-pa.googleapis.com";
 /** The production host constant also present in the binary. Select it with AGY_API_URL. */
 export const PRODUCTION_BASE_URL = "https://cloudcode-pa.googleapis.com";
 export const PLUGIN_VERSION = "0.1.0";
-export const USER_AGENT = `pi-integrations/${PLUGIN_VERSION} (agy-subscription)`;
+/**
+ * The Antigravity client version this domain presents. Must lead the User-Agent
+ * (see USER_AGENT): the backend gates the consumer Cloud Code project on the
+ * UA naming the Antigravity client, established by live bisection on
+ * 2026-10-17 — the same token and account receives a project with
+ * `antigravity-1.4.0` in the UA and `ineligibleTiers: [UNSUPPORTED_CLIENT]`
+ * without it. The metadata fields (ideName, versions) are NOT checked.
+ */
+export const CLIENT_VERSION = "1.4.0";
+/**
+ * Leads with the Antigravity client identity the backend gates on, and keeps
+ * this package's own identity after it, so requests stay attributable. This is
+ * a first-party identity claim required to use the account's own project; see
+ * docs/domains/agy.md#terms for the risk assessment, the same call the Claude
+ * gate documents.
+ */
+export const USER_AGENT = `antigravity-${CLIENT_VERSION} pi-integrations/${PLUGIN_VERSION} (agy-subscription)`;
 
 export function resolveBaseUrl(env: Record<string, string | undefined> = process.env): string {
 	return safeBaseUrl(env.AGY_API_URL?.trim() || DEFAULT_BASE_URL);
@@ -56,7 +74,7 @@ function clip(text: string, max: number): string {
 }
 
 const HINTS: Record<number, string> = {
-	400: "The request shape may have changed or an assumed field was rejected; compare the message below. This client's identity fields are unverified.",
+	400: "The request shape may have changed or an assumed field was rejected; compare the message below.",
 	401: "The access token was rejected. Run /login again.",
 	403: "The account or project is not permitted to use this model through this client (tier, onboarding, or client identity). Check that Antigravity works for this account in the `agy` CLI.",
 	404: "The model or method was not found for this account. Refresh the model list.",

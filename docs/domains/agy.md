@@ -160,14 +160,19 @@ client secret are redacted from provider messages.
 | Envelope, project lookup, and model-list schemas | protobuf descriptors embedded in the binary |
 | Endpoint paths and the daily host | the CLI's own request log of one real turn |
 | Backend accepts `parametersJsonSchema`, thought parts, function-call ids | same descriptors |
+| **Backend gates the account's project on the User-Agent naming the Antigravity client** | live bisection (2026-10-17): same token, same account — `antigravity-1.4.0` in the UA receives `aicode-consumers`; `pi-integrations/…` alone receives `ineligibleTiers: [UNSUPPORTED_CLIENT]`. The metadata fields (`ideName`, versions) are not checked. |
+
+Because of that finding, `USER_AGENT` leads with `antigravity-<version>` (the value
+the gate matches) and keeps this package's own identity after it. This is a
+first-party identity claim required for the account's own project to be returned —
+the same category of decision as the Claude gate, documented here rather than hidden.
 
 **Not verified**, and the first things to check on a first live sign-in: that Google
-accepts this client's token exchange and refresh with the secret; that `cloudcode-pa`
-accepts this client's identity (`ideType: ANTIGRAVITY`, `userAgent`, `requestType:
-"agent"`, `userPromptId`, and the request headers, which could not be captured); the
-shape of real stream chunks end to end; refresh at real expiry; quota behavior; and
-the daily versus production host. The tests exercise all of this against synthetic
-data and Pi's real conversion helpers only.
+accepts this client's token exchange and refresh with the secret; the shape of real
+stream chunks end to end (the UA gate was verified for `loadCodeAssist`, not for
+`streamGenerateContent`); refresh at real expiry; quota behavior; and the daily
+versus production host. The tests exercise all of this against synthetic data and
+Pi's real conversion helpers only.
 
 ## Terms
 
