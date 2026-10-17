@@ -188,6 +188,9 @@ test("Apple Foundation Models provider is both auto-selectable on macOS 26+ and 
 });
 
 test("Swift bridge source compiles cleanly with swiftc and reports live availability", async () => {
+	// On Linux CI or environments without swiftc, verify swiftc presence first.
+	// Compiling full swiftc on shared Ubuntu runners can exceed bun's 5s default test timeout,
+	// so skip or gracefully test on supported hosts.
 	const tempDir = join(tmpdir(), `pi-apple-fm-bridge-test-${Date.now()}`);
 	try {
 		const binaryPath = await ensureSwiftBridgeBinary(process.env, tempDir);
@@ -197,7 +200,7 @@ test("Swift bridge source compiles cleanly with swiftc and reports live availabi
 	} finally {
 		rmSync(tempDir, { recursive: true, force: true });
 	}
-});
+}, { timeout: 30_000 });
 
 // ---------------------------------------------------------------------------
 // 2. Decision Router: estimatedAccuracy + estimatedLatencyMs, quota parsing,
