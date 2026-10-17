@@ -347,3 +347,121 @@ test("a custom gate is honored for testing without touching the real classifier 
 	const gated = (await (received!.onPayload as (p: unknown) => Promise<unknown>)({ original: true })) as { gated: { original: boolean } };
 	assert.equal(gated.gated.original, true);
 });
+
+// ---------------------------------------------------------------------------
+// Shape edges
+//
+// The helpers above cover string/array content and the tool_result ordering.
+// These reach the arms that handle a content value which is a bare block object
+// (Anthropic's API accepts that shape, so a provider can send it) and a `system`
+// param of an unrecognized shape. Each was confirmed reachable through this
+// exported entry point before being written.
+// ---------------------------------------------------------------------------
+
+test("a system-role message whose content is a bare block object is absorbed", () => {
+	// contentAsArray's final arm: not a string, not an array, not nullish.
+	const gated = applyClaudeCodeSystemGate({
+		system: CANONICAL_SYSTEM_LINE,
+		messages: [
+			{ role: "system", content: { type: "text", text: "third-party system prompt" } },
+			{ role: "user", content: "hello" },
+		],
+	} as never) as { messages: Array<{ role: string; content: unknown }> };
+
+	assert.ok(!gated.messages.some((m) => m.role === "system"), "no system-role message may survive");
+	const first = gated.messages[0];
+	assert.equal(first.role, "user", "the absorbed block moves into a user message");
+	// Canonical line, then the relocated third-party block, then the adjacent
+	// user message's own content.
+	const blocks = first.content as unknown[];
+	assert.equal(blocks.length, 3, "canonical line + absorbed block + existing user content");
+	assert.deepEqual(blocks[0], { type: "text", text: CANONICAL_SYSTEM_LINE }, "the canonical identity line leads");
+	assert.deepEqual(blocks[1], { type: "text", text: "third-party system prompt" },
+		"an unwrapped block is normalized, not dropped");
+	assert.equal(blocks[2], "hello", "the adjacent user content is preserved verbatim, still a string");
+});
+
+test("an unrecognized system shape still absorbs system messages", () => {
+	// The final `else`: the gate cannot parse `system`, so it leaves it alone
+	// rather than guessing, but absorption must still happen or an un-gated
+	// system-role message would be sent.
+	const gated = applyClaudeCodeSystemGate({
+		system: { unexpected: "shape" },
+		messages: [
+			{ role: "system", content: [{ type: "text", text: "third-party" }] },
+			{ role: "user", content: "hi" },
+		],
+	} as never) as { system: unknown; messages: Array<{ role: string }> };
+
+	assert.deepEqual(gated.system, { unexpected: "shape" }, "an unknown system shape is left untouched");
+	assert.ok(!gated.messages.some((m) => m.role === "system"), "absorption still occurs");
+});
+
+test("an unrecognized system shape with nothing to absorb is returned unchanged", () => {
+	const payload = { system: { unexpected: "shape" }, messages: [{ role: "user", content: "hi" }] };
+	assert.equal(applyClaudeCodeSystemGate(payload as never), payload, "no change means no new object");
+});
+
+test("a non-object payload passes through untouched", () => {
+	// The gate is applied to whatever a caller hands it; a primitive is not ours to rewrite.
+	for (const payload of [null, undefined, "string", 42, true]) {
+		assert.equal(applyClaudeCodeSystemGate(payload as never), payload);
+	}
+});
+
+test("a payload with no messages array leaves the system param canonicalized", () => {
+	const gated = applyClaudeCodeSystemGate({ system: "a string system prompt" } as never) as { messages?: unknown; system: unknown };
+	assert.ok(gated.messages, "a user message is inserted to carry the moved block, never sending an un-gated payload");
+});
+
+test("a bare block object in an ordinary user message is preserved", () => {
+	// normalizeContentBlocks' final arm, reached when a system-role message
+	// carries an unwrapped block.
+	const gated = applyClaudeCodeSystemGate({
+		system: CANONICAL_SYSTEM_LINE,
+		messages: [
+			{ role: "system", content: { type: "text", text: "sys" } },
+			{ role: "user", content: "second" },
+		],
+	} as never) as { messages: Array<{ content: unknown }> };
+	const blocks = gated.messages[0].content as Array<{ text?: string }>;
+	assert.ok(Array.isArray(blocks), "the merged content is an array of blocks");
+	assert.ok(blocks.some((b) => b.text === "sys"), "the unwrapped block survives intact");
+});
+
+test("moved blocks merge into an unwrapped user message without dropping it", () => {
+	// mergeBlocksAfter calls contentAsArray, whose final arm handles content that
+	// is a single block object rather than an array or a string. Anthropic's API
+	// accepts that shape, so the merge must not lose it.
+	const gated = applyClaudeCodeSystemGate({
+		system: "a non-canonical system prompt",
+		messages: [
+			{ role: "system", content: [{ type: "text", text: "from system" }] },
+			{ role: "user", content: { type: "text", text: "unwrapped user text" } },
+		],
+	} as never) as { messages: Array<{ role: string; content: unknown }> };
+
+	const merged = gated.messages[0].content as unknown[];
+	assert.ok(Array.isArray(merged), "the merged content is normalized to an array");
+	const texts = merged.filter((b): b is { text: string } => typeof b === "object" && b !== null && "text" in b).map((b) => b.text);
+	assert.ok(texts.includes("unwrapped user text"), "the unwrapped user block must survive the merge");
+	assert.ok(texts.includes("a non-canonical system prompt"), "the moved system block is added");
+	assert.ok(texts.includes("from system"), "the absorbed system block is added");
+});
+
+test("blocks merge after leading tool_result blocks", () => {
+	// Anthropic requires tool_result to lead a user message; the gate must not
+	// break that rule when prepending moved blocks.
+	const gated = applyClaudeCodeSystemGate({
+		system: "moved system prompt",
+		messages: [
+			{ role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "result" }] },
+			{ role: "system", content: [{ type: "text", text: "absorbed" }] },
+			{ role: "user", content: "later question" },
+		],
+	} as never) as { messages: Array<{ role: string; content: unknown }> };
+
+	const blocks = gated.messages[0].content as Array<{ type: string }>;
+	assert.equal(blocks[0]?.type, "tool_result", "tool_result must still lead the content array");
+	assert.ok(!gated.messages.some((m) => m.role === "system"), "no system-role message survives");
+});

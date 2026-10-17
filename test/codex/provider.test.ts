@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { createServer } from "node:http";
 import { test } from "bun:test";
 import {
 	BASE_URL, createCodexProvider, DISPLAY_NAME, METHOD_BROWSER, METHOD_DEVICE, PROVIDER_ID,
 } from "../../src/domains/codex/provider.ts";
-import { DEVICE_REDIRECT_URI, DEVICE_VERIFICATION_URI, REDIRECT_URI } from "../../src/domains/codex/oauth.ts";
+import { CALLBACK_PORT, DEVICE_REDIRECT_URI, DEVICE_VERIFICATION_URI, REDIRECT_URI } from "../../src/domains/codex/oauth.ts";
 import type { LoopbackOptions } from "../../src/shared/index.ts";
 import { codexAccessToken } from "../support/jwt.ts";
 import { loginCallbacks, sequenceFetch, virtualClock } from "../support/fixtures.ts";
@@ -253,4 +254,51 @@ test("refresh returns replacement credentials, never retries, and honors cancell
 	controller.abort();
 	await assert.rejects(g.config.oauth!.refreshToken({ access: "a", refresh: "r", expires: 0 }, controller.signal), { name: "AbortError" });
 	assert.equal(g.calls.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Real port collision
+//
+// The fixture above simulates EADDRINUSE by throwing, which cannot catch a
+// regression where the provider binds the wrong port, ignores the bind error,
+// or hangs instead of falling back. This test occupies 1455 with a real server
+// and drives login through the default startLoopback.
+// ---------------------------------------------------------------------------
+
+test("a real port-1455 collision falls back to the pasted redirect URL", async () => {
+	const squatter = createServer(() => { /* accept and stay silent */ });
+	await new Promise<void>((resolve, reject) => {
+		squatter.once("error", reject);
+		squatter.listen(CALLBACK_PORT, "127.0.0.1", resolve);
+	});
+	try {
+		// No startLoopback override: this uses the real loopback server.
+		const http = sequenceFetch([{ access_token: codexAccessToken(), refresh_token: "synthetic-refresh-token", expires_in: 3600 }]);
+		const clock = virtualClock(NOW);
+		const config = createCodexProvider({
+			models: [], streamSimple: () => { throw new Error("Do not infer during login"); },
+			fetchImpl: http.fetchImpl, ...clock,
+		});
+
+		let state = "";
+		let authUrl = "";
+		let prompts = 0;
+		const callbacks = loginCallbacks({
+			onAuth: (info) => { authUrl = info.url; state = new URL(info.url).searchParams.get("state") ?? ""; },
+			onSelect: async () => METHOD_BROWSER,
+			onPrompt: async (prompt) => {
+				prompts++;
+				// The pasted value must satisfy state checking, so use the real one.
+				assert.match(prompt.message, /paste/i, "the user must be told to paste the redirect URL");
+				return `code=synthetic-authorization-code&state=${state}`;
+			},
+		});
+
+		const credentials = await config.oauth!.login!(callbacks);
+		assert.ok(credentials.access, "the exchange must still succeed through the pasted path");
+		assert.equal(prompts, 1, "exactly one prompt: the paste fallback");
+		assert.match(authUrl, new RegExp(`[?&]state=${state}[&#]`), "the authorize URL carries the state being checked");
+	} finally {
+		await new Promise<void>((resolve) => squatter.close(() => resolve()));
+	}
 });

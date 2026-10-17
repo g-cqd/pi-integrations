@@ -16,8 +16,16 @@ commitment is currently offered.
 - Pi owns credential persistence. The default auth store is plaintext.
 - All domains use the shared HTTP boundary: redirect refusal, 30-second request
   signal, 1 MiB response-byte limit while reading, and sanitized transport errors.
+  The signal bounds body reads as well as the response head: each read is raced
+  against the signal, so a peer that sends headers and then holds the connection
+  open cannot pin the caller indefinitely. This previously applied only between
+  chunk reads, which let a stalled body outlive the documented 30 seconds, and
+  Antigravity's error-body read had no signal at all.
 - Injected fetch implementations must honor cancellation. The cap does not
   constrain allocations already performed by the underlying runtime.
+- Tests must not trust a well-behaved response body. A fixture that closes its
+  stream cannot expose an unbounded read, so cancellation and stalled-body paths
+  use a stream that is deliberately left open.
 - Polling rejects results arriving after its deadline, honors cancellation, and
   does not automatically retry terminal or uncertain exchanges.
 - Provider-owned schemas remain separately validated. Shared helpers are not a

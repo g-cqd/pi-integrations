@@ -127,3 +127,82 @@ test("waitFor still rejects a pre-aborted signal", async () => {
 	// Guard against the body-read fix regressing the sibling primitive.
 	await assert.rejects(waitFor(50, AbortSignal.abort(new Error("pre"))), /pre/);
 });
+
+// ---------------------------------------------------------------------------
+// Concurrency
+//
+// Every other test here is single-request. These run overlapping reads to catch
+// two failure modes that only appear under concurrency: a shared reader/buffer
+// leaking between calls, and one call's abort tearing down another's.
+// ---------------------------------------------------------------------------
+
+test("concurrent reads do not interleave their bodies", async () => {
+	const encoder = new TextEncoder();
+	const makeStream = (id: string, chunks: number) => new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (let i = 0; i < chunks; i++) controller.enqueue(encoder.encode(`${id}:${i} `));
+			controller.close();
+		},
+	});
+	const requests = Array.from({ length: 25 }, (_, n) =>
+		requestText(`https://provider.test/${n}`, {}, { fetchImpl: (async () => new Response(makeStream(`id${n}`, 4))) as FetchImplementation })
+			.then(({ text }) => text));
+
+	const results = await withDeadline(Promise.all(requests), 5000, "concurrent reads");
+	for (let n = 0; n < 25; n++) {
+		const expected = Array.from({ length: 4 }, (_, i) => `id${n}:${i} `).join("");
+		assert.equal(results[n], expected, `request ${n} received another request's body`);
+	}
+});
+
+test("aborting one concurrent read does not disturb the others", async () => {
+	const encoder = new TextEncoder();
+	// The healthy body closes, so it settles on its own. A stream left open is
+	// not a healthy neighbour: it correctly waits for the 30s cap.
+	const open = (tag: string) => new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(encoder.encode(tag));
+			// Intentionally not closed: the abort is what ends this read.
+		},
+	});
+	const closes = (tag: string) => new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(encoder.encode(tag));
+			controller.close();
+		},
+	});
+
+	// Three requests share one signal and all complete normally.
+	const shared = new AbortController();
+	const completes = [1, 2, 3].map((n) => requestText("https://provider.test/", {},
+		{ fetchImpl: (async () => new Response(new ReadableStream<Uint8Array>({ start(c) { c.enqueue(encoder.encode(`ok${n}`)); c.close(); } }))) as FetchImplementation, signal: shared.signal })
+		.then(({ text }) => text));
+	assert.deepEqual(await withDeadline(Promise.all(completes), 5000, "shared-signal completes"), ["ok1", "ok2", "ok3"]);
+	assert.equal(shared.signal.aborted, false, "completing reads must not abort the shared signal");
+
+	// Now abort a stalled read while a healthy one runs beside it.
+	const controller = new AbortController();
+	const healthy = requestText("https://provider.test/", {},
+		{ fetchImpl: (async () => new Response(closes("healthy"))) as FetchImplementation });
+	setTimeout(() => controller.abort(new Error("only this one")), 10);
+	const aborted = requestText("https://provider.test/", {},
+		{ fetchImpl: (async () => new Response(open("stalled"))) as FetchImplementation, signal: controller.signal });
+
+	const settled = await withDeadline(Promise.allSettled([healthy, aborted]), 5000, "mixed concurrency");
+	assert.equal(settled[0].status, "fulfilled", "the healthy read must still succeed");
+	assert.equal((settled[0] as PromiseFulfilledResult<{ text: string }>).value.text, "healthy");
+	assert.equal(settled[1].status, "rejected", "the aborted read must reject");
+	assert.match(String((settled[1] as PromiseRejectedResult).reason), /only this one/);
+});
+
+test("many concurrent stalled reads all settle rather than accumulating", async () => {
+	const settledCount = await withDeadline(Promise.allSettled(
+		Array.from({ length: 20 }, (_, n) => {
+			const c = new AbortController();
+			setTimeout(() => c.abort(new Error(`abort ${n}`)), 5);
+			return requestText("https://provider.test/", {}, { fetchImpl: fetchReturning(stalledBody()), signal: c.signal });
+		}),
+	), 8000, "20 concurrent stalled reads");
+	assert.equal(settledCount.length, 20);
+	assert.ok(settledCount.every((s) => s.status === "rejected"), "every aborted read must reject, none may hang or resolve");
+});

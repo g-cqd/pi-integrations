@@ -137,3 +137,53 @@ test("server-reported limits win, and only fall back when absent", () => {
 	assert.equal((without as { contextWindow?: number }).contextWindow, 128_000, "fallback when the server reports nothing");
 	assert.equal((without as { maxTokens?: number }).maxTokens, 8192);
 });
+
+test("the server's default model is ordered first and the rest keep server order", async () => {
+	// refreshModels sorts by defaultAgentModelId descending, so the default
+	// leads and every other model keeps the order the server sent.
+	const provider = createAgyProvider({
+		fetchImpl: (async () => new Response(JSON.stringify({
+			defaultAgentModelId: "bravo",
+			models: {
+				alpha: { displayName: "Alpha", supportsImages: false, supportsThinking: false, recommended: false, preview: false },
+				bravo: { displayName: "Bravo", supportsImages: true, supportsThinking: true, recommended: true, preview: false },
+				charlie: { displayName: "Charlie", supportsImages: false, supportsThinking: true, recommended: false, preview: false },
+			},
+		}), { status: 200 })) as FetchImplementation,
+	});
+	const list = await provider.refreshModels!({
+		allowNetwork: true, credential: { access: "token", projectId: "proj" }, signal: new AbortController().signal,
+	} as never);
+	const ids = (list as Array<{ id: string }>).map((m) => m.id);
+	assert.equal(ids[0], "bravo", "the default model leads");
+	assert.deepEqual(ids.slice(1).sort(), ["alpha", "charlie"], "the remaining models are all present");
+	// Capabilities must survive the reordering.
+	const bravo = (list as Array<{ id: string; input?: string[] }>).find((m) => m.id === "bravo");
+	assert.ok(bravo?.input?.includes("image"), "image support survives sorting");
+});
+
+test("a catalog with no default keeps the server's order", async () => {
+	const provider = createAgyProvider({
+		fetchImpl: (async () => new Response(JSON.stringify({
+			models: {
+				zulu: { displayName: "Zulu", supportsImages: false, supportsThinking: false, recommended: false, preview: false },
+				alpha: { displayName: "Alpha", supportsImages: false, supportsThinking: false, recommended: false, preview: false },
+			},
+		}), { status: 200 })) as FetchImplementation,
+	});
+	const list = await provider.refreshModels!({ allowNetwork: true, credential: { access: "token", projectId: "proj" }, signal: new AbortController().signal } as never);
+	assert.deepEqual((list as Array<{ id: string }>).map((m) => m.id), ["zulu", "alpha"],
+		"without a default, insertion order is preserved rather than sorted by name");
+});
+
+test("a default id the catalog does not contain does not drop every model", async () => {
+	// A server naming a default we do not receive must not reorder or empty the list.
+	const provider = createAgyProvider({
+		fetchImpl: (async () => new Response(JSON.stringify({
+			defaultAgentModelId: "ghost-model",
+			models: { alpha: { displayName: "Alpha", supportsImages: false, supportsThinking: false, recommended: false, preview: false } },
+		}), { status: 200 })) as FetchImplementation,
+	});
+	const list = await provider.refreshModels!({ allowNetwork: true, credential: { access: "token", projectId: "proj" }, signal: new AbortController().signal } as never);
+	assert.deepEqual((list as Array<{ id: string }>).map((m) => m.id), ["alpha"], "the real model is still offered");
+});

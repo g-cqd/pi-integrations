@@ -102,3 +102,116 @@ for (const name of ["claude", "codex", "agy", "spettro", "mistral-vibe"] as cons
 		assert.equal(config.headers, undefined);
 	});
 }
+
+// ---------------------------------------------------------------------------
+// Harness loadability
+//
+// scripts/smoke-registration.sh proves the CLI lists these providers, and the
+// tests above prove each entry registers in isolation. Neither checks the config
+// object Pi actually receives: a provider can register successfully with a
+// missing `streamSimple`, an unparseable `baseUrl`, or no models, and Pi then
+// fails later at inference time rather than at load time. These assertions run
+// against the real index.ts wiring, with the models Pi's own catalogs supply.
+// ---------------------------------------------------------------------------
+
+test("every domain's registered config is complete enough for Pi to use", () => {
+	const f = fakePi();
+	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi);
+	for (const [id, config] of f.providers) {
+		assert.equal(typeof config.name, "string", `${id} needs a name`);
+		assert.ok((config.name as string).length > 0, `${id} needs a non-empty name`);
+		assert.equal(typeof config.api, "string", `${id} needs an api id`);
+		assert.ok(Array.isArray(config.models) && config.models.length > 0, `${id} needs at least one model`);
+		assert.equal(typeof config.streamSimple, "function", `${id} needs streamSimple`);
+		const oauth = config.oauth;
+		assert.ok(oauth, `${id} needs oauth`);
+		for (const hook of ["login", "refreshToken", "getApiKey"] as const) {
+			assert.equal(typeof oauth[hook], "function", `${id} oauth.${hook} must be callable`);
+		}
+		// isSubscription is optional in Pi's type and read as `=== true`, so
+		// omitting it is how a provider says "not a subscription". Only a
+		// non-boolean, non-undefined value would be a real defect.
+		assert.ok(oauth.isSubscription === undefined || typeof oauth.isSubscription === "boolean",
+			`${id} isSubscription must be a boolean when present`);
+		// A baseUrl Pi cannot parse fails at request time, deep in inference.
+		assert.doesNotThrow(() => new URL(String(config.baseUrl)), `${id} baseUrl must be a URL`);
+	}
+});
+
+test("the subscription domains declare isSubscription and the API-key domain omits it", () => {
+	// Pi reads `provider.auth.oauth?.isSubscription === true`, so declaring true
+	// opts into subscription UI and refresh handling. Mistral/Vibe receives a
+	// service-issued API key with no refresh grant; declaring it as a
+	// subscription would promise Pi a rotating refresh token that never comes.
+	const f = fakePi();
+	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi);
+	for (const id of ["claude-subscription", "codex-subscription", "agy-subscription", "spettro"]) {
+		assert.equal(f.providers.get(id)!.oauth!.isSubscription, true, `${id} is subscription sign-in`);
+	}
+	assert.equal(f.providers.get("mistral-vibe")!.oauth!.isSubscription, undefined,
+		"mistral-vibe is API-key, so it must not claim a subscription");
+});
+
+test("each domain receives a non-empty model list from Pi's own catalogs", () => {
+	// models is injected by index.ts, not by the domain, so an empty catalog in
+	// Pi would silently produce a provider that lists nothing at all.
+	const f = fakePi();
+	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi);
+	for (const [id, config] of f.providers) {
+		const models = config.models ?? [];
+		assert.ok(models.length > 0, `${id} must list at least one model`);
+		for (const model of models) {
+			assert.equal(typeof model.id, "string", `${id} has a model without an id`);
+			assert.ok((model.id as string).length > 0, `${id} has an empty model id`);
+		}
+	}
+	// Antigravity starts as a placeholder until refreshModels discovers the account's.
+	assert.deepEqual((f.providers.get("agy-subscription")!.models ?? []).map((m) => m.id), ["agy-catalog-loading"]);
+	assert.deepEqual((f.providers.get("spettro")!.models ?? []).map((m) => m.id), ["spettro-catalog-loading"]);
+});
+
+test("each index returns a live Pi event stream from streamSimple", () => {
+	// The index.ts wrappers are what Pi calls at inference time, and no test
+	// invoked them. These assertions are deliberately about the contract Pi
+	// depends on -- a real event stream, the caller's context forwarded, not the
+	// request itself, which Pi's adapter performs with its own HTTP client and
+	// which a global fetch spy cannot observe.
+	const bogus = { id: "synthetic-model", api: "synthetic", provider: "synthetic", name: "synthetic", baseUrl: "http://127.0.0.1:1/synthetic" };
+	const context = normalizeContext({ messages: [{ role: "user", content: "synthetic", timestamp: 0 }] });
+	const options = { apiKey: "synthetic-key" } as SimpleStreamOptions;
+
+	for (const [name, entry] of [["codex", codex], ["spettro", spettro], ["mistral-vibe", mistral], ["claude", claude]] as const) {
+		const f = fakePi();
+		entry(f.pi);
+		const config = [...f.providers.values()][0]!;
+		// A non-placeholder model id, so a catalog guard does not reject the call
+		// before delegation is observable.
+		const model = { ...bogus, id: "synthetic-model-not-a-placeholder", api: config.api };
+		const stream = config.streamSimple!(model as never, context, options) as unknown as Record<string, unknown>;
+		assert.ok(stream, `${name} must return a stream`);
+		// Pi's event-stream contract: an async iterable plus a terminal result.
+		assert.equal(typeof (stream as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator], "function",
+			`${name} must return an async-iterable event stream`);
+		for (const key of ["finalResultPromise", "isComplete"]) {
+			assert.ok(key in stream, `${name} stream must expose ${key}, which Pi consumes`);
+		}
+	}
+
+	// Antigravity owns its stream rather than delegating, and both catalog-guard
+	// domains must refuse the placeholder instead of sending a request.
+	const f = fakePi();
+	agy(f.pi);
+	assert.throws(
+		() => f.providers.get("agy-subscription")!.streamSimple!({ ...bogus, id: "agy-catalog-loading" } as never, context, options),
+		/catalog not loaded/,
+		"the Antigravity placeholder must refuse to infer",
+	);
+	const f2 = fakePi();
+	spettro(f2.pi);
+	assert.throws(
+		() => f2.providers.get("spettro")!.streamSimple!({ ...bogus, id: "spettro-catalog-loading" } as never, context, options),
+		/catalog not loaded/,
+		"the Spettro placeholder must refuse to infer",
+	);
+});
+

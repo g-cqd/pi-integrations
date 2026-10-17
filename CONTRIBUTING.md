@@ -40,6 +40,11 @@ Two consequences for the `agy` secret, which is a live credential of the app:
   belong in each domain's small index.ts.
 - Use the sequence-fetch, callback, and virtual-clock fixtures in test/support.
 - Add both domain regressions and shared-contract tests when changing a boundary.
+- A response body that closes on its own cannot expose an unbounded read, so
+  cancellation and stalled-body tests use a stream that is deliberately left
+  open; see `test/shared/http-abort.test.ts`.
+- When a test guards a hang or a boundary, revert the fix and confirm the test
+  fails. A test that passes both ways proves nothing.
 - Delegate inference to Pi; do not add first-party identity claims, prompt-role
   relocation, or access/billing-bypass workarounds.
 - Preserve provider IDs and other users' existing provider configurations.
@@ -47,6 +52,11 @@ Two consequences for the `agy` secret, which is a live credential of the app:
 For behavior changes, explain the failure and distinguish mocked evidence,
 public-source protocol observations, and live measurements. Successful login
 does not establish inference entitlement or subscription billing.
+
+`test/package/contracts.test.ts` asserts what Pi actually receives from each
+`index.ts`: a complete provider config, `streamSimple` returning a real Pi event
+stream, and the placeholder models refusing to infer. A provider can register
+successfully and still be unusable at inference time.
 
 See [architecture](docs/architecture.md) for adding a domain. Keep pull requests
 focused; report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

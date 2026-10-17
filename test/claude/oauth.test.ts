@@ -146,3 +146,11 @@ test("credential mapping includes bounded expiry margin and optional account met
 	assert.equal(credentials.org_name, "Synthetic organization");
 	assert.equal(credentials.scopes, token.scope);
 });
+
+test("a non-2xx revoke response fails with its status rather than silently succeeding", async () => {
+	// Revoke is cleanup the user asked for, so the failure path matters: a token
+	// must not be reported as revoked when the server said it was not.
+	const f = mock(500, {});
+	await assert.rejects(revokeCredentials(token.refresh_token, f), /revoke endpoint returned 500/);
+	assert.equal(f.calls.length, 1);
+});

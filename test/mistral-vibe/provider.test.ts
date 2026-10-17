@@ -127,3 +127,39 @@ test("Vibe sign-in is the only credential path: no API-key configuration is decl
 	assert.equal(f.config.apiKey, undefined);
 	assert.ok(f.config.oauth);
 });
+
+// ---------------------------------------------------------------------------
+// Transport-level poll failures
+//
+// The terminal states above are all reported in the poll body. These are the
+// paths where the request itself fails, which the domain maps to its own
+// guidance rather than surfacing a raw transport error.
+// ---------------------------------------------------------------------------
+
+test("an HTTP 410 from the poll endpoint is reported as an expired sign-in", async () => {
+	const f = fixture([process, new Response("gone", { status: 410 })]);
+	await assert.rejects(f.config.oauth!.login(f.callbacks), /expired/i);
+	assert.equal(f.calls.length, 2, "no exchange is attempted after an expired process");
+});
+
+test("a non-410 poll failure propagates without being relabelled", async () => {
+	// 410 is the only status with domain meaning; anything else must not be
+	// dressed up as "expired", or a transient outage looks like a dead login.
+	const f = fixture([process, new Response("boom", { status: 500 })]);
+	await assert.rejects(f.config.oauth!.login(f.callbacks), (error: Error) => {
+		assert.ok(!/expired/i.test(error.message), `a 500 must not be reported as expired: ${error.message}`);
+		return true;
+	});
+	assert.equal(f.calls.length, 2);
+});
+
+test("a completed poll with no exchange token fails before the exchange", async () => {
+	const f = fixture([process, { status: "completed" }]);
+	await assert.rejects(f.config.oauth!.login(f.callbacks), /exchange token/i);
+	assert.equal(f.calls.length, 2, "no exchange request without a token to exchange");
+});
+
+test("an exchange that returns no API key fails", async () => {
+	const f = fixture([process, complete, {}]);
+	await assert.rejects(f.config.oauth!.login(f.callbacks), /no valid API key/i);
+});
