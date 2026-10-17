@@ -72,10 +72,11 @@ test("the Codex domain reuses Pi's Codex catalog and the Codex responses API", (
 	assert.ok((config.models ?? []).every((m) => (m.api ?? "openai-codex-responses") === "openai-codex-responses"));
 });
 
-test("manifest loads exactly the five domain entry points", () => {
+test("manifest loads all domain entry points", () => {
 	assert.deepEqual(manifest.pi.extensions, [
 		"./src/domains/claude/index.ts", "./src/domains/codex/index.ts", "./src/domains/agy/index.ts",
 		"./src/domains/spettro/index.ts", "./src/domains/mistral-vibe/index.ts",
+		"./src/domains/apple-foundation/index.ts", "./src/domains/decision-router/index.ts",
 	]);
 	assert.equal(manifest.packageManager, "bun@1.4.3");
 });

@@ -1,18 +1,20 @@
 # pi-integrations
 
 Modular provider integrations for [Pi](https://github.com/earendil-works/pi),
-with reusable authentication components and **Bun-based development**.
+with reusable authentication components, **on-device Apple Foundation Models**,
+a **System One Decision Router**, and **Bun-based development**.
 
-One package, five independently loadable domains. **Every domain signs in
-through `/login`; none accepts API-key configuration.**
+One package, seven independently loadable domains.
 
-| Domain | Pi provider ID | Sign-in | What the service returns |
+| Domain | Pi provider ID | Sign-in / Activation | What the service provides |
 | --- | --- | --- | --- |
 | [Claude](docs/domains/claude.md) | `claude-subscription` | Browser authorization + pasted `code#state`, PKCE | OAuth access and rotating refresh tokens |
 | [Codex](docs/domains/codex.md) | `codex-subscription` | ChatGPT sign-in via the Codex CLI client: browser (loopback or pasted redirect) or device code | OAuth access and rotating refresh tokens, plus a live model catalog (falling back to Pi's static list) |
-| [Antigravity](docs/domains/agy.md) | `agy-subscription` | Google sign-in with a pasted authorization code, PKCE (needs the Antigravity app's OAuth client secret, supplied locally, see the doc) | OAuth access and refresh tokens, plus a Cloud Code project |
-| [Spettro](docs/domains/spettro.md) | `spettro` | Browser device session + polling | A device API key; no refresh endpoint implemented |
-| [Mistral/Vibe](docs/domains/mistral-vibe.md) | `mistral-vibe` | Browser approval + PKCE polling/exchange | A Mistral API key, **not** an OAuth refresh token |
+| [Antigravity](docs/domains/agy.md) | `agy-subscription` | Google sign-in with a pasted authorization code, PKCE (automatically discovers the local `agy` client secret) | OAuth access and refresh tokens, plus a Cloud Code project |
+| [Spettro](docs/domains/spettro.md) | `spettro` | Browser device session + polling | A device API key and live model catalog (incl. free `Velo 3.1 Flash` at Sonnet-level accuracy) |
+| [Mistral/Vibe](docs/domains/mistral-vibe.md) | `mistral-vibe` | Browser approval + PKCE polling/exchange | A Mistral API key (`mistral-large-4`), **not** an OAuth refresh token |
+| [Apple Foundation Models](docs/domains/decision-router.md#apple-foundation-models-apple-foundation) | `apple-foundation` | Auto-enabled on macOS 26+ Apple Silicon, or explicit `/login` verification | On-device 3B `FoundationModels` (`apple-foundation-local`, `apple-foundation-content-tagging`) with `@Generable` tool calls |
+| [Decision Router](docs/domains/decision-router.md) | `decision-router` | Always available virtual models (`decision-router/router`, `auto`, `lowest`, `medium`, `highest`) | System One decision-model routing (`vllm-d3-lite` / `Laya` / `Jev`) + live subscription quota, latency, accuracy & price scoring |
 
 **Experimental and unofficial.** A successful login is not proof of inference
 entitlement, subscription billing, model availability, or zero charges. Review
@@ -94,8 +96,42 @@ In Pi, run **`/login`** and choose:
 - **Spettro Subscription** — finish browser sign-in; Pi polls the device session.
 - **Mistral Vibe (experimental)** — finish browser sign-in; Pi polls and performs
   the PKCE-bound API-key exchange. It does not read Vibe's Keychain.
+- **Apple Foundation Models (On-Device)** — auto-enabled on macOS 26+ Apple
+  Silicon; running `/login` explicitly verifies `SystemLanguageModel.default.availability`
+  through the native Swift bridge and stores the local credential.
 
-Then run **`/model`** and select a model under the corresponding provider ID.
+Then run **`/model`** and select a model under the corresponding provider ID, or
+select **`decision-router/router`** (with `/thinking` set to `low` = Lowest,
+`medium` = Medium, `high` = Highest, or `xhigh` = Auto) to let the Decision
+Router pick the best candidate across your signed-in subscriptions and local
+models.
+
+### Optional local System One decision server (`vllm-d3-lite`)
+
+To power `decision-router` Auto mode with the state-of-the-art local 0.85B
+System One decision model (`ggml-org/vllm-d3-lite-GGUF`, #1 Pareto frontier on
+Jev Decision Index ≤1B):
+
+```sh
+mkdir -p ~/.models/decision
+curl -fsSL -o ~/.models/decision/vllm-d3-lite-Q8_0.gguf \
+  https://huggingface.co/ggml-org/vllm-d3-lite-GGUF/resolve/main/vllm-d3-lite-Q8_0.gguf
+
+llama-server \
+  -m ~/.models/decision/vllm-d3-lite-Q8_0.gguf \
+  --host 127.0.0.1 \
+  --port 18080 \
+  -ngl 999 \
+  -c 8192 \
+  -ub 2048 \
+  -b 2048 \
+  --cache-ram 256
+```
+
+See [docs/domains/decision-router.md](docs/domains/decision-router.md) for the
+full benchmark table (`vllm-d3-lite` vs `Laya` vs `d3-edge` vs `d1-omni` vs
+`Julia-1`), subscription and per-model accuracy/latency estimates, and custom
+tier configuration (`~/.config/pi-integrations/decision-router.json`).
 
 Claude, Codex and Mistral/Vibe use Pi's bundled model catalogs, not
 account-specific entitlement lists; the Mistral domain offers only
