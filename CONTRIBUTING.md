@@ -1,62 +1,56 @@
 # Contributing
 
-Use Bun 1.4.3 and the committed bun.lock:
+Thank you for contributing to `pi-integrations`. This repository follows strict red-first TDD, dependency-injected domain boundaries, and zero-credential-leakage rules.
+
+## Development Setup
+
+Use **Bun 1.4.3** and the committed `bun.lock`:
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
-bun run check
-bun test
-bun run test:coverage
+bun run check          # TypeScript type-check (tsc --noEmit)
+bun test               # Full unit & contract test suite
+bun run test:coverage  # Coverage report across all domains and shared primitives
+bun run ci             # Full local CI pipeline (mirrors .github/workflows/ci.yml)
 ```
 
-The domain suites can be run independently through test:claude, test:codex,
-test:agy, test:spettro, test:mistral-vibe, test:shared, and test:contracts.
-Run `bun run verify:pricing` (network) after touching a model catalog.
+### Domain-Scoped Suites
 
-Use red-first tests and synthetic fixtures. Do not make real provider requests
-or access local credential stores in automated tests/CI. Never commit captures,
-account exports, tokens, browser authorization strings, session transcripts,
-or local Pi configuration.
+Each domain can be tested in isolation:
 
-Two consequences for the `agy` secret, which is a live credential of the app:
+| Suite | Command |
+| --- | --- |
+| Shared primitives (`src/shared`) | `bun run test:shared` |
+| Claude Subscription (`src/domains/claude`) | `bun run test:claude` |
+| Codex Subscription (`src/domains/codex`) | `bun run test:codex` |
+| Antigravity (`src/domains/agy`) | `bun run test:agy` |
+| Spettro (`src/domains/spettro`) | `bun run test:spettro` |
+| Mistral Vibe (`src/domains/mistral-vibe`) | `bun run test:mistral-vibe` |
+| Decision Router & Apple Foundation Models | `bun run test:decision-router` |
+| Package & Harness Contracts | `bun run test:contracts` |
 
-- Tests must inject the file reader. A resolver called without one reads the
-  real `~/.config/pi-integrations/agy-oauth-client-secret`, so a developer who
-  followed the documented setup would see unrelated tests fail, and a local
-  credential would leak into test output.
-- `scripts/extract-agy-client-secret.ts` is an operator tool, not a test. It makes
-  a real token-endpoint request by design, so it is deliberately outside CI and
-  outside the test suites. Its search rules are pure and live in
-  `scripts/extract/candidates.ts`, where `test/agy/extract-candidates.test.ts`
-  covers them with synthetic, secret-shaped fixtures.
+Run `bun run verify:pricing` (requires network access) after touching a model catalog or pricing parser.
 
-## Code boundaries
+---
 
-- Add protocol behavior to its domain, not to another domain.
-- Reuse shared HTTP, PKCE, URL validation, polling, and credential primitives
-  where the semantics match. Do not create a universal auth abstraction merely
-  to hide differences between OAuth and API-key protocols.
-- Keep provider factories dependency-injected. Runtime imports/registration
-  belong in each domain's small index.ts.
-- Use the sequence-fetch, callback, and virtual-clock fixtures in test/support.
-- Add both domain regressions and shared-contract tests when changing a boundary.
-- A response body that closes on its own cannot expose an unbounded read, so
-  cancellation and stalled-body tests use a stream that is deliberately left
-  open; see `test/shared/http-abort.test.ts`.
-- When a test guards a hang or a boundary, revert the fix and confirm the test
-  fails. A test that passes both ways proves nothing.
-- Delegate inference to Pi; do not add first-party identity claims, prompt-role
-  relocation, or access/billing-bypass workarounds.
-- Preserve provider IDs and other users' existing provider configurations.
+## Testing & Evidence Discipline
 
-For behavior changes, explain the failure and distinguish mocked evidence,
-public-source protocol observations, and live measurements. Successful login
-does not establish inference entitlement or subscription billing.
+1. **Red-First TDD:** Write a failing test that reproduces the bug or defines the new contract before writing implementation code. When guarding a hang, boundary, or regression, revert the fix once to verify the test actually fails.
+2. **Hermetic Tests Only:** Automated tests must never make live network requests or read the developer's real `~/.pi` or `~/.config/pi-integrations` credential files. Inject `fetchImpl`, file readers, clocks (`virtualClock`), and sleeps (`sequenceFetch`, `loginCallbacks` in `test/support/fixtures.ts`).
+3. **Stalled-Body Cancellation:** A fixture stream that closes on its own cannot expose an unbounded read. Use deliberately open streams (see `test/shared/http-abort.test.ts`) when testing timeouts and cancellation.
+4. **Never Commit Captures or Credentials:** Never commit raw proxy captures, account exports, OAuth tokens, client secrets, browser authorization strings, or session transcripts. `test/agy/no-bundled-secret.test.ts` scans all tracked files across plaintext, `base64`, `base64url`, `hex`, reversed strings, and concatenated literals.
+5. **Distinguish Evidence Levels:** In code comments and `docs/`, state clearly whether a protocol claim comes from:
+   - **Live measurement / bisection** (e.g. the Antigravity `antigravity/cli/` User-Agent gate, Claude prompt classifier rules, Apple Foundation Models Swift bridge execution),
+   - **Binary / descriptor extraction** (e.g. protobuf descriptors or CLI string tables), or
+   - **Unverified inference** (must degrade safely on failure).
 
-`test/package/contracts.test.ts` asserts what Pi actually receives from each
-`index.ts`: a complete provider config, `streamSimple` returning a real Pi event
-stream, and the placeholder models refusing to infer. A provider can register
-successfully and still be unusable at inference time.
+---
 
-See [architecture](docs/architecture.md) for adding a domain. Keep pull requests
-focused; report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+## Code Boundaries
+
+- **Domain Isolation:** Keep provider-specific endpoints, headers, and schemas inside `src/domains/<domain>/`. `src/shared/` must remain free of provider URLs or singleton state.
+- **Reuse Shared Primitives:** Use `requestText`, `requestJson`, `generatePKCE`, `pollUntil`, `startLoopback`, `iterateSse`, `safeBaseUrl`, and `trustedUrl` from `src/shared/` wherever the protocol semantics match.
+- **Small Entry Points:** Keep each domain's `index.ts` minimal (wiring `pi.registerProvider` or `pi.registerVirtualModel`), and put testable factory functions in `provider.ts` or `router.ts`.
+- **Harness Contracts:** `test/package/contracts.test.ts` verifies what Pi actually receives from each `index.ts` entry point—complete provider configs, live event-stream delegation, and placeholder guards. Update it when adding a domain.
+
+See [docs/architecture.md](docs/architecture.md) for a step-by-step guide to adding a new domain, and [SECURITY.md](SECURITY.md) for private vulnerability reporting.

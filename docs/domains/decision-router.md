@@ -20,7 +20,7 @@ The Decision Router is a two-stage synthetic routing layer that maps a single vi
    - `estimatedAccuracy` (in `[0, 1]`, grounded in 2026-10-17 coding/reasoning benchmarks) + task-profile specialization bonus
    - `estimatedLatencyMs` (median time-to-first-useful-turn penalty)
    - Live subscription quota headroom (`fiveHourRemaining` and `weeklyRemaining` from Claude, Codex, and Antigravity quota endpoints, with nonlinear conservation below 20% remaining)
-   - List-price token cost + **free-model promotion** (e.g. Spettro's `Velo 3.1 Flash` at $0 cost and Sonnet-level accuracy, and on-device Apple Foundation Models at $0 cost)
+   - List-price token cost + **zero-cost model promotion** (such as on-device Apple Foundation Models and zero-cost subscription models)
    - Prompt-cache stickiness bonus when staying on the previous turn's model
    - Automatic cross-tier escalation/degradation and retry failover when a provider hits a usage limit mid-session.
 
@@ -79,7 +79,7 @@ Every subscription and candidate model carries explicit `estimatedAccuracy` and 
 | Provider ID | Subscription | Est. Accuracy | Est. Latency | Live Quota Endpoint |
 | --- | --- | ---: | ---: | --- |
 | `apple-foundation` | Apple Foundation Models (On-Device 3B) | `0.68` | `420 ms` | Always 100% (local ANE/GPU) |
-| `spettro` | Spettro Subscription (incl. free `Velo 3.1 Flash`) | `0.91` | `680 ms` | Unmetered on `Velo 3.1 Flash` |
+| `spettro` | Spettro Subscription | `0.91` | `680 ms` | Account-scoped |
 | `claude-subscription` | Claude Subscription (Haiku / Sonnet / Opus 5.5 / Fable 5.1) | `0.95` | `1150 ms` | `GET https://api.anthropic.com/api/oauth/usage` (`five_hour` + `seven_day`) |
 | `codex-subscription` | Codex Subscription (Luna / Terra / Sol / Astra) | `0.95` | `1250 ms` | `GET https://chatgpt.com/backend-api/codex/usage` (`primary_window` + `secondary_window` + `model_usage`) |
 | `agy-subscription` | Antigravity Subscription (Gemini 3.8 Flash / 4 Argon / Claude 5.5) | `0.93` | `950 ms` | `POST .../v1internal:retrieveUserQuotaSummary` (`5h` + `weekly` buckets) |
@@ -90,12 +90,10 @@ Every subscription and candidate model carries explicit `estimatedAccuracy` and 
 | Tier | Provider / Model ID | Physical Thinking | Est. Accuracy | Est. Latency | Input / Output ($/M) | Special Role |
 | --- | --- | --- | ---: | ---: | ---: | --- |
 | **Lowest** (`low`) | `apple-foundation/apple-foundation-local` | `off` | `0.68` | `420 ms` | `$0 / $0` | **On-device 3B**; promoted when `local_ok >= 0.65` and prompt `< 1500` tokens |
-| **Lowest** (`low`) | `spettro/Velo 3.1 Flash` | `low` | **`0.91`** | **`580 ms`** | **`$0 / $0`** | **Free cloud model with Sonnet-level accuracy** |
 | **Lowest** (`low`) | `claude-subscription/claude-haiku-5-5` | `low` | `0.85` | `620 ms` | `$0.10 / $0.50` | Fast 1M-context Haiku 5.5 |
 | **Lowest** (`low`) | `codex-subscription/gpt-6-luna` | `low` | `0.86` | `640 ms` | `$0.10 / $0.50` | Fast Codex workhorse |
 | **Lowest** (`low`) | `agy-subscription/gemini-3.5-flash-lite` | `low` | `0.79` | `520 ms` | `$0.075 / $0.30` | Ultra-lightweight Gemini |
 | **Lowest** (`low`) | `agy-subscription/gemini-3.8-flash-low` | `low` | `0.84` | `690 ms` | `$0.75 / $3.75` | 1M-context Flash Low |
-| **Medium** (`medium`) | `spettro/Velo 3.1 Flash` | `medium` | **`0.91`** | **`650 ms`** | **`$0 / $0`** | **Promoted top medium pick: Sonnet-level accuracy at $0 cost** |
 | **Medium** (`medium`) | `claude-subscription/claude-sonnet-5-5` | `medium` | `0.92` | `1150 ms` | `$2.00 / $10.00` | Primary Claude engineering model |
 | **Medium** (`medium`) | `agy-subscription/gemini-4-argon-medium` | `medium` | `0.92` | `1080 ms` | `$2.00 / $10.00` | Default Antigravity reasoning model |
 | **Medium** (`medium`) | `codex-subscription/gpt-5.6-terra` | `medium` | `0.90` | `1100 ms` | `$2.00 / $12.00` | Balanced Codex coding model |

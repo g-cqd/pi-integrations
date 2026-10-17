@@ -1,44 +1,46 @@
 # pi-integrations
 
-Modular provider integrations for [Pi](https://github.com/earendil-works/pi),
-with reusable authentication components, **on-device Apple Foundation Models**,
-a **System One Decision Router**, and **Bun-based development**.
+[![CI](https://img.shields.io/badge/CI-bun%20run%20ci-2ea44f?style=flat-square)](scripts/ci.sh)
+[![Bun](https://img.shields.io/badge/Bun-1.4.3-f9f1e1?style=flat-square&logo=bun)](https://bun.sh)
+[![Pi](https://img.shields.io/badge/Pi-1.3.0-5865F2?style=flat-square)](https://github.com/earendil-works/pi)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
-One package, seven independently loadable domains.
+Modular subscription, local-model, and decision-routing integrations for [Pi](https://github.com/earendil-works/pi), built on a zero-dependency shared authentication and transport layer.
 
-| Domain | Pi provider ID | Sign-in / Activation | What the service provides |
-| --- | --- | --- | --- |
-| [Claude](docs/domains/claude.md) | `claude-subscription` | Browser authorization + pasted `code#state`, PKCE | OAuth access and rotating refresh tokens |
-| [Codex](docs/domains/codex.md) | `codex-subscription` | ChatGPT sign-in via the Codex CLI client: browser (loopback or pasted redirect) or device code | OAuth access and rotating refresh tokens, plus a live model catalog (falling back to Pi's static list) |
-| [Antigravity](docs/domains/agy.md) | `agy-subscription` | Google sign-in with a pasted authorization code, PKCE (automatically discovers the local `agy` client secret) | OAuth access and refresh tokens, plus a Cloud Code project |
-| [Spettro](docs/domains/spettro.md) | `spettro` | Browser device session + polling | A device API key and live model catalog (incl. free `Velo 3.1 Flash` at Sonnet-level accuracy) |
-| [Mistral/Vibe](docs/domains/mistral-vibe.md) | `mistral-vibe` | Browser approval + PKCE polling/exchange | A Mistral API key (`mistral-large-4`), **not** an OAuth refresh token |
-| [Apple Foundation Models](docs/domains/decision-router.md#apple-foundation-models-apple-foundation) | `apple-foundation` | Auto-enabled on macOS 26+ Apple Silicon, or explicit `/login` verification | On-device 3B `FoundationModels` (`apple-foundation-local`, `apple-foundation-content-tagging`) with `@Generable` tool calls |
-| [Decision Router](docs/domains/decision-router.md) | `decision-router` | Always available virtual models (`decision-router/router`, `auto`, `lowest`, `medium`, `highest`) | System One decision-model routing (`vllm-d3-lite` / `Laya` / `Jev`) + live subscription quota, latency, accuracy & price scoring |
+---
 
-**Experimental and unofficial.** A successful login is not proof of inference
-entitlement, subscription billing, model availability, or zero charges. Review
-each provider's terms and permissions. This project is not affiliated with the
-providers or Pi maintainers.
+## Highlights
 
-A model catalog is not an entitlement check. Codex and Antigravity both read the
-account's available models live and fall back to a static list on any failure, but
-neither enforces a plan: they narrow what is *offered*, not what is permitted. A
-403 from an inference request is still the first real signal.
+- **Seven Independently Loadable Domains** — Claude, OpenAI Codex, Google Antigravity (`agy`), Spettro, Mistral Vibe, On-Device Apple Foundation Models (`FoundationModels`), and a synthetic System One **Decision Router**.
+- **System One Decision Routing (`decision-router`)** — Pairs zero-token single-pass semantic classification (`vllm-d3-lite`, `Laya`, `Jev`) with a multi-objective utility scorer that weighs **estimated accuracy**, **estimated latency**, **live subscription quota headroom**, **per-token pricing**, **zero-cost model promotion**, and **prompt-cache stickiness**.
+- **On-Device Apple Foundation Models (`apple-foundation`)** — Zero-cost, private local 3B inference on macOS 26+ Apple Silicon via a cached native Swift bridge (`apple-fm-bridge-v2`), auto-enabled out of the box and exposing every active Pi tool and its full JSON Schema options via `@Generable` guided generation.
+- **Zero Bundled Secrets** — Every remote domain signs in through `/login`. Antigravity's desktop OAuth client secret is automatically discovered in memory from your installed `agy` binary and verified against Google's token endpoint without ever being committed or written to disk.
+- **Hermetic, Red-First Test Suite** — 500+ tests across 28 suites covering OAuth state machines, stalled-body abort races, multi-encoding secret scanning, live Swift bridge compilation, and Pi harness contracts.
 
-## Install once, then start Pi normally
+---
 
-```sh
-pi install git:github.com/g-cqd/pi-integrations
-pi
-```
+## Domain Catalog
 
-Pi auto-loads installed packages; `-e` is only needed for a one-session trial.
-The package explicitly lists the five domain entry points in `package.json`.
-It is distributed through Git, not published to a package registry.
+| Domain | Pi Provider ID | Sign-In / Activation | Models & Capabilities | Documentation |
+| --- | --- | --- | --- | --- |
+| **Decision Router** | `decision-router` | Always available (`decision-router/router`, `auto`, `lowest`, `medium`, `highest`) | Maps `/thinking` (`low` / `medium` / `high` / `xhigh`=Auto) to the highest-utility model across your active subscriptions & local models | [docs/domains/decision-router.md](docs/domains/decision-router.md) |
+| **Apple Foundation Models** | `apple-foundation` | Auto-enabled on macOS 26+ Apple Silicon, or explicit `/login` verification | On-device 3B (`apple-foundation-local`, `apple-foundation-content-tagging`) with `@Generable` structured tool calls | [docs/domains/decision-router.md#apple-foundation-models-apple-foundation](docs/domains/decision-router.md#apple-foundation-models-apple-foundation) |
+| **Claude Subscription** | `claude-subscription` | Browser OAuth + pasted `code#state` (PKCE S256) | Pi's Anthropic catalog (Haiku 5.5, Sonnet 5.5, Opus 5.5, Fable 5.1) + subscription inference gate & drift diagnostics | [docs/domains/claude.md](docs/domains/claude.md) |
+| **Codex Subscription** | `codex-subscription` | ChatGPT browser callback (`:1455` / paste) or headless device code | Live account catalog (`/backend-api/codex/models`) with automatic fallback to Pi's static Codex catalog | [docs/domains/codex.md](docs/domains/codex.md) |
+| **Antigravity (`agy`)** | `agy-subscription` | Google OAuth pasted code + automatic local binary client-secret discovery | Live Cloud Code catalog (`gemini-4-argon-*`, `gemini-3.8-flash-*`, `claude-opus-5-5-*`, `claude-sonnet-5-5-*`, `gpt-oss-120b-medium`) | [docs/domains/agy.md](docs/domains/agy.md) |
+| **Spettro** | `spettro` | Browser device session + polling | Live `/v1/models` catalog discovered from your signed-in account | [docs/domains/spettro.md](docs/domains/spettro.md) |
+| **Mistral Vibe** | `mistral-vibe` | Browser approval + PKCE polling/exchange | Service-issued API key scoped to **Mistral Large 4** (`mistral-large-4`, 1M context) | [docs/domains/mistral-vibe.md](docs/domains/mistral-vibe.md) |
 
-For Pi's package operations to use **Bun**, merge this into
-`~/.pi/agent/settings.json`, preserving your existing settings:
+> [!IMPORTANT]
+> **Experimental & Unofficial.** A successful login is not proof of inference entitlement, subscription billing, model availability, or zero charges. Model catalogs narrow what is *offered*, not what is permitted; a `403` or `429` from an inference request is still the authoritative signal. Review each provider's terms before signing in. This project is not affiliated with the providers or Pi maintainers.
+
+---
+
+## Quick Start
+
+### 1. Install into Pi
+
+Ensure Pi is configured to use **Bun** in `~/.pi/agent/settings.json`:
 
 ```json
 {
@@ -46,9 +48,19 @@ For Pi's package operations to use **Bun**, merge this into
 }
 ```
 
-The legacy setting is named `npmCommand`, but the selected executable is Bun.
+Then install the package directly from Git:
 
-### Local development install
+```sh
+pi install git:github.com/g-cqd/pi-integrations
+pi
+```
+
+Pi auto-loads all seven domain entry points listed in `package.json`.
+
+<details>
+<summary><strong>Local checkout or selective domain loading</strong></summary>
+
+For local development:
 
 ```sh
 git clone https://github.com/g-cqd/pi-integrations.git
@@ -57,66 +69,59 @@ bun install --frozen-lockfile --ignore-scripts
 pi install .
 ```
 
-Pi references this directory without copying it. Keep the checkout in place.
-For a temporary trial, use `pi -e .`.
-
-Do not load both an old standalone copy and this package's copy of a domain.
-In particular, move an existing `~/.pi/agent/extensions/spettro/` outside the
-auto-load directory before enabling this package's Spettro domain.
-
-### Load only selected domains
-
-Pi package resource filters can select domain entry points. For example, a
-package declaration in `~/.pi/agent/settings.json` can enable only Spettro:
+To load only specific domains, filter `extensions` in `~/.pi/agent/settings.json` (or via `pi config`):
 
 ```json
 {
   "packages": [{
     "source": "git:github.com/g-cqd/pi-integrations",
-    "extensions": ["src/domains/spettro/index.ts"]
+    "extensions": [
+      "src/domains/claude/index.ts",
+      "src/domains/codex/index.ts",
+      "src/domains/agy/index.ts",
+      "src/domains/spettro/index.ts",
+      "src/domains/apple-foundation/index.ts",
+      "src/domains/decision-router/index.ts"
+    ]
   }]
 }
 ```
+</details>
 
-Edit the existing package declaration rather than adding another copy.
-`pi config` also exposes package resource selection.
+### 2. Sign In (`/login`)
 
-## Sign in
+Run **`/login`** inside Pi to authenticate the subscriptions you use:
 
-In Pi, run **`/login`** and choose:
+- **Claude Subscription (experimental)** — opens the authorization URL; paste back the `code#state` string.
+- **Codex Subscription (experimental)** — choose **Browser sign-in** (auto-completes via loopback `:1455` or pasted redirect URL if port 1455 is busy) or **Device code sign-in** for headless machines.
+- **Antigravity Subscription (experimental)** — automatically discovers and verifies the OAuth client secret from your installed `agy` binary (or `AGY_OAUTH_CLIENT_SECRET`), opens the Google sign-in link, and resolves your Cloud Code project (`aicode-consumers`).
+- **Spettro Subscription** — opens the browser approval link and polls until your device key is issued.
+- **Mistral Vibe (experimental)** — opens the Mistral Console approval link and exchanges the PKCE grant for a key.
+- **Apple Foundation Models (On-Device)** — already auto-enabled on macOS 26+ Apple Silicon; running `/login` explicitly verifies `SystemLanguageModel.default.availability` and saves the marker credential.
 
-- **Claude Subscription (experimental)** — follow the link and paste the full
-  `code#state` from that attempt.
-- **Codex Subscription (experimental)** — pick browser or device-code sign-in with
-  your ChatGPT account. This is the Codex CLI's sign-in, not the "Sign in with
-  ChatGPT" token-sharing login that Pi's `openai` provider offers.
-- **Antigravity Subscription (experimental)** — follow the link, then paste the
-  authorization code from the final page. The Antigravity domain needs the app's
-  OAuth client secret from the environment or a local file first; see its doc.
-- **Spettro Subscription** — finish browser sign-in; Pi polls the device session.
-- **Mistral Vibe (experimental)** — finish browser sign-in; Pi polls and performs
-  the PKCE-bound API-key exchange. It does not read Vibe's Keychain.
-- **Apple Foundation Models (On-Device)** — auto-enabled on macOS 26+ Apple
-  Silicon; running `/login` explicitly verifies `SystemLanguageModel.default.availability`
-  through the native Swift bridge and stores the local credential.
+### 3. Select a Model or Use the Decision Router (`/model`)
 
-Then run **`/model`** and select a model under the corresponding provider ID, or
-select **`decision-router/router`** (with `/thinking` set to `low` = Lowest,
-`medium` = Medium, `high` = Highest, or `xhigh` = Auto) to let the Decision
-Router pick the best candidate across your signed-in subscriptions and local
-models.
+Run **`/model`** to pick any provider's physical model directly, or select **`decision-router/router`** and use **`/thinking`** to control how requests are routed:
 
-### Optional local System One decision server (`vllm-d3-lite`)
+| `/thinking` Level | Shortcut Virtual Model | Routing Behavior |
+| --- | --- | --- |
+| `low` | `decision-router/lowest` | Routes to the best **Lowest** tier model (`apple-foundation-local` on-device 3B for quick local tasks, `claude-haiku-5-5`, `gpt-6-luna`, `gemini-3.5-flash-lite`, `gemini-3.8-flash-low`) |
+| `medium` | `decision-router/medium` | Routes to the best **Medium** tier model (`claude-sonnet-5-5`, `gemini-4-argon-medium`, `gpt-5.6-terra`, `gemini-3.8-flash-medium`, `mistral-large-4`) |
+| `high` | `decision-router/highest` | Routes to the best **Highest** tier model (`gpt-6.1-sol`, `claude-opus-5-5`, `gemini-4-argon-high`, `claude-fable-5-1`, `gpt-6-astra`) |
+| `xhigh` | `decision-router/auto` | **Auto Mode:** queries the System One decision model (`vllm-d3-lite` / `Laya` / `Jev`) for `tier`, `task_profile`, and `local_ok`, then scores all surviving candidates against live subscription quotas, latency, accuracy, and price |
 
-To power `decision-router` Auto mode with the state-of-the-art local 0.85B
-System One decision model (`ggml-org/vllm-d3-lite-GGUF`, #1 Pareto frontier on
-Jev Decision Index ≤1B):
+---
+
+## Optional Local Decision Server (`vllm-d3-lite`)
+
+The Decision Router works out of the box with zero external servers (falling back to any registered Pi classifier or its built-in deterministic heuristic). For maximum local routing accuracy on Apple Silicon, run **`vllm-d3-lite-Q8_0.gguf`** (0.85B parameters, 1.03 GB, #1 Pareto frontier on the Jev Decision Index ≤1B) via `llama-server`:
 
 ```sh
 mkdir -p ~/.models/decision
 curl -fsSL -o ~/.models/decision/vllm-d3-lite-Q8_0.gguf \
   https://huggingface.co/ggml-org/vllm-d3-lite-GGUF/resolve/main/vllm-d3-lite-Q8_0.gguf
 
+# Note: -ub 2048 -b 2048 is required for non-causal bidirectional decision attention in llama.cpp 0.7+
 llama-server \
   -m ~/.models/decision/vllm-d3-lite-Q8_0.gguf \
   --host 127.0.0.1 \
@@ -128,170 +133,89 @@ llama-server \
   --cache-ram 256
 ```
 
-See [docs/domains/decision-router.md](docs/domains/decision-router.md) for the
-full benchmark table (`vllm-d3-lite` vs `Laya` vs `d3-edge` vs `d1-omni` vs
-`Julia-1`), subscription and per-model accuracy/latency estimates, and custom
-tier configuration (`~/.config/pi-integrations/decision-router.json`).
+See [docs/domains/decision-router.md](docs/domains/decision-router.md) for M2 Pro benchmarks (`vllm-d3-lite` vs. `Laya` vs. `vllm-d3-edge` vs. `LiquidAI d1-omni-600M` vs. `Julia-1`), per-model accuracy/latency tables, and custom JSON configuration (`~/.config/pi-integrations/decision-router.json`).
 
-Claude, Codex and Mistral/Vibe use Pi's bundled model catalogs, not
-account-specific entitlement lists; the Mistral domain offers only
-**Mistral Large 4**. Spettro and Antigravity read their model lists from the
-signed-in account. Their initial catalog placeholders are not inference models
-and cannot be sent.
+---
 
-## Shared components, domain-specific protocols
+## Repository Architecture
 
 ```text
 src/
-  shared/                 reusable primitives; no provider endpoints
-    http.ts               bounded HTTP reads, deadlines, safe errors
-    urls.ts               HTTPS/origin/path validation
-    pkce.ts               fresh S256 verifier/challenge pairs
-    polling.ts            deadlines, cancellation, injectable clock/delay
-    credentials.ts        validation, token expiry margin, API-key bookkeeping
-    jwt.ts                read a claim from an issued token (never verifies)
-    loopback.ts           one-shot OAuth callback server + callback/paste race
-    sse.ts                bounded Server-Sent Events reader
-    index.ts              public shared-component exports
+  shared/                   Zero-endpoint reusable authentication & transport primitives
+    http.ts                 Signal-raced 1 MiB bounded reads, 30s timeout, redirect refusal
+    urls.ts                 HTTPS/loopback base-URL and origin/path boundary validation
+    pkce.ts                 RFC 7636 S256 verifier and challenge generation
+    polling.ts              Deadline-clamped polling, RFC 8628 slow_down, injectable clock
+    credentials.ts          Secret validation, expiry safety margins, API-key bookkeeping
+    jwt.ts                  Unverified JWT payload decoding for routing claims (accountId)
+    loopback.ts             One-shot 127.0.0.1 OAuth callback server + manual paste race
+    sse.ts                  Per-event bounded Server-Sent Events reader with abort racing
   domains/
-    claude/               authorization-code OAuth + refresh/revoke helpers
-                         + subscription inference gate and protocol-drift
-                         diagnostics (see docs)
-    codex/                ChatGPT sign-in (browser or device code) + refresh
-    agy/                  Google sign-in, Cloud Code project/model discovery,
-                         and a dedicated cloudcode-pa inference stream
-    spettro/              device login + live model discovery
-    mistral-vibe/         browser PKCE process + API-key exchange
-test/
-  shared/                 primitive behavior and adversarial inputs
-  claude/                 OAuth flow, response validation, inference gate
-  codex/                  sign-in protocol and login state machine
-  agy/                    sign-in, Cloud Code client, stream assembly
-  spettro/                login, catalog, and compatibility behavior
-  mistral-vibe/           complete browser-sign-in state machine
-  pricing/                official-price parsers and comparison
-  package/                isolation, coexistence, delegation contracts
-  support/                synthetic responses, callbacks, virtual clock
+    claude/                 OAuth PKCE + subscription inference gate + drift diagnostics
+    codex/                  ChatGPT OAuth (loopback + device code) + live /codex/models catalog
+    agy/                    Google OAuth + in-memory binary secret discovery + cloudcode-pa stream
+    spettro/                Device-session polling + live /v1/models catalog
+    mistral-vibe/           Console PKCE polling + API-key exchange (Mistral Large 4)
+    apple-foundation/       macOS 26+ FoundationModels native Swift bridge + @Generable tools
+    decision-router/        System One classifier client + live quota probes + utility router
+scripts/
+  ci.sh                     Local CI pipeline mirroring .github/workflows/ci.yml
+  smoke-registration.sh     Offline end-to-end Pi CLI registration smoke test
+  verify-pricing.ts         Live verifier diffing vendor price pages against Pi catalogs
+  extract-agy-client-secret.ts  Optional standalone operator tool for agy secret verification
 ```
 
-Domain providers accept injected fetch/stream implementations; polling accepts
-an injected clock and sleep function. Tests do not need real provider accounts,
-Keychain access, real polling sleeps, or live network calls.
+### Documentation Index
 
-See [the architecture guide](docs/architecture.md) for the reusable API and
-rules for adding another domain. These are TypeScript source exports intended
-for Pi/Bun consumers, not a compiled general-purpose JavaScript SDK.
+- **Architecture & Shared Primitives:** [docs/architecture.md](docs/architecture.md)
+- **Domain Guides:**
+  - [Decision Router & Apple Foundation Models](docs/domains/decision-router.md)
+  - [Claude Subscription](docs/domains/claude.md)
+  - [Codex Subscription](docs/domains/codex.md)
+  - [Antigravity (`agy`) Subscription](docs/domains/agy.md)
+  - [Spettro Subscription](docs/domains/spettro.md)
+  - [Mistral Vibe](docs/domains/mistral-vibe.md)
+- **Protocol Verification & Pricing:**
+  - [Per-Token Pricing Verification (`bun run verify:pricing`)](docs/pricing.md)
+  - [Harness Proxy Methodology](docs/harness-proxy.md)
+  - [Codex & Antigravity Login Investigation Notes](docs/investigations/codex-and-agy-login.md)
+- **Governance:** [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
 
-## What this package does not do
+---
 
-- It does not run Claude Code, Codex, `agy`, Vibe, or Spettro as subprocess agents.
-- It accepts no API keys: no domain reads a key or token from the environment
-  or declares an `apiKey`. `SPETTRO_API_URL` and `AGY_API_URL` only select an
-  endpoint. The Antigravity app's OAuth client secret is supplied locally (an app
-  credential, not a user token; `AGY_OAUTH_CLIENT_SECRET` or the default file path).
-- It does not use the Claude Agent SDK or claim first-party client identity.
-- Claude includes the subscription inference gate: the canonical identity
-  line becomes the only system block and the harness prompt is relocated into
-  user messages (see [the Claude domain doc](docs/domains/claude.md)). **This
-  works around a server-side check on third-party harness prompts.** It does not
-  raise account limits or forge Claude Code attribution, but it can conflict with
-  the provider's terms for subscription use; that risk is yours to assess.
-  Client-identity headers are applied by Pi's bundled implementation for
-  `sk-ant-oat` tokens; this package adds no header overrides of its own.
-- It does not change account permissions or promise subscription billing, and
-  it does not retry or reroute a request the provider rejects for quota.
-- Claude, Codex, Spettro and Mistral delegate inference to Pi: Pi owns
-  conversion, wire headers, streaming, tools, and usage reporting, and delegation
-  does not mean those behaviors were independently verified here. **Antigravity is
-  the exception:** Pi's Google adapter cannot be used, so that domain builds the
-  request with Pi's exported helpers and streams `cloudcode-pa` itself.
+## Development & Verification
 
-## Credentials and lifecycle
-
-Pi owns storage, normally in **plaintext** `~/.pi/agent/auth.json`. This package
-adds neither OS Keychain storage nor encryption. Do not commit or share that file.
-
-- **Claude:** access/refresh expiry comes from token responses. Refresh returns
-  replacement credentials for Pi to persist.
-- **Spettro and Mistral/Vibe:** the service returns API keys without an expiry
-  contract handled here. A distant timestamp is used only for Pi's legacy OAuth
-  storage interface; it is **not a ten-year validity guarantee**. Refresh callbacks
-  retain the existing credential rather than inventing a refresh endpoint.
-
-**`/logout` removes the Pi credential; it does not revoke it server-side.**
-The Claude revoke helper is a code-level API, not wired into `/logout`.
-Environment-provided credentials and independently stored Vibe keys remain set.
-
-This package has no telemetry endpoint of its own. The providers, Pi, and its
-dependencies have their own behavior and policies. See [SECURITY.md](SECURITY.md).
-
-## Development and verification
-
-Checked development setup: **Bun 1.4.3, Pi 1.3.0**.
+Verified with **Bun 1.4.3** and **Pi 1.3.0**:
 
 ```sh
-bun run ci        # install (frozen lockfile) + type-check + tests + offline smoke test
+bun run ci                    # frozen install + tsc --noEmit + coverage suite + offline CLI smoke test
+bun test                      # run all 513 unit & contract tests
+bun run verify:pricing        # compare Pi catalog prices against live Anthropic/OpenAI/Mistral tables
 ```
 
-`bun run ci` mirrors `.github/workflows/ci.yml` exactly, so verification does not
-depend on hosted Actions being available.
+Run individual domain suites:
 
 ```sh
-bun test           # tests only
-bun run test:coverage
+bun run test:claude
+bun run test:codex
+bun run test:agy
+bun run test:spettro
+bun run test:mistral-vibe
+bun run test:decision-router
+bun run test:shared
+bun run test:contracts
 ```
 
-Prices inherited from Pi's catalogs can be re-checked against the vendors'
-official pages with `bun run verify:pricing` (network; see [pricing](docs/pricing.md)).
-Notes on Codex and Antigravity sign-in are in
-[the login investigation](docs/investigations/codex-and-agy-login.md).
-[Harness proxy](docs/harness-proxy.md) explains how those protocol claims were
-established from real agent traffic, and how to redo that safely.
+---
 
-Domain commands: `bun run test:claude`, `bun run test:codex`, `bun run test:agy`,
-`bun run test:spettro`, `bun run test:mistral-vibe`, `bun run test:shared`,
-`bun run test:contracts`.
+## Security & Credential Lifecycle
 
-Offline registration smoke test. Pi lists a provider only when it has a
-credential, and these domains accept no API-key configuration, so the script
-writes synthetic OAuth credentials into a throwaway Pi config directory (never
-`~/.pi`) and checks that all five domains register. It makes no network request:
+- **Plaintext Storage:** Pi persists credentials in `~/.pi/agent/auth.json`. Keep that file private and never commit it.
+- **No Secret Bundling:** `test/agy/no-bundled-secret.test.ts` decodes candidate spans (`base64`, `base64url`, `hex`, reversed text, and joined string literals) across the entire repository to prevent accidental credential commits in any encoding.
+- **Logout vs. Revocation:** Running `/logout` in Pi deletes the local credential entry; revoke active sessions or keys in your provider's account settings when needed.
 
-```sh
-./scripts/smoke-registration.sh
-```
-
-Tests cover authentication, validation, failure states, transport boundaries,
-cancellation/deadlines, catalog parsing, and request/stream delegation contracts.
-**They do not prove live login/inference, actual billing, real expiry-boundary
-refresh, cross-process persistence safety, tool/image round-trips, or compaction.**
-Earlier live observations of private prototypes do not verify this package.
-
-## Troubleshooting
-
-- Missing provider: check `pi list`, resource filters, and restart Pi or `/reload`.
-  A provider absent from `--list-models` may simply have no available credential;
-  Pi hides credential-less extension providers from that listing.
-- Duplicate provider: disable the old standalone extension or duplicate install.
-- Login expired/denied: restart `/login`; do not reuse authorization codes.
-- Uncertain exchange/refresh: a single-use grant may already be consumed. The
-  transport does not automatically retry; sign in again when needed.
-- 403/model/quota errors: check provider-side access and account usage. Error
-  text alone is not proof of a billing cause or a reason to enable extra charges.
-- Antigravity reports a missing client secret: set `AGY_OAUTH_CLIENT_SECRET` or put
-  it in `~/.config/pi-integrations/agy-oauth-client-secret`.
-- Antigravity reports `invalid_client` at the token step: that secret does not pair
-  with this client, so supply the value that does.
-- Codex browser sign-in asks you to paste a redirect URL: port 1455 was busy
-  (the Codex CLI uses it too). Paste the full `http://localhost:1455/...` URL
-  from the browser's address bar, or choose device-code sign-in.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md), [architecture](docs/architecture.md), and
-[security reporting](SECURITY.md). Never submit raw captures, account exports,
-credentials, browser authorization strings, or session transcripts.
+See [SECURITY.md](SECURITY.md) for full boundary documentation and private vulnerability reporting.
 
 ## License
 
-[MIT](LICENSE). Independent project. Product names belong to their owners.
+[MIT](LICENSE). Independent project; product and model names belong to their respective owners.

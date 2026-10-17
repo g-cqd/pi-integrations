@@ -1,75 +1,34 @@
-# Security
+# Security Policy
 
-This is experimental software, not an audited authentication client.
+`pi-integrations` is experimental software, not an audited authentication client.
 
-Use [GitHub private vulnerability reporting](https://github.com/g-cqd/pi-integrations/security/advisories/new).
-Do not open public issues containing credentials, authorization strings, private
-account information, raw captures, or provider response bodies.
+## Reporting a Vulnerability
 
-Report the affected revision, expected/observed behavior, and a minimal
-reproduction using synthetic data. No response-time or support-lifetime
-commitment is currently offered.
+Please use **[GitHub Private Vulnerability Reporting](https://github.com/g-cqd/pi-integrations/security/advisories/new)**.
 
-## Boundaries
+- **Do not** open public issues or pull requests containing live credentials, OAuth authorization codes, refresh tokens, private account identifiers, raw proxy captures, or unredacted provider error bodies.
+- Include the affected commit revision, expected vs. observed behavior, and a minimal reproduction using synthetic data.
 
-- Pi extensions run with the user's operating-system permissions.
-- Pi owns credential persistence. The default auth store is plaintext.
-- All domains use the shared HTTP boundary: redirect refusal, 30-second request
-  signal, 1 MiB response-byte limit while reading, and sanitized transport errors.
-  The signal bounds body reads as well as the response head: each read is raced
-  against the signal, so a peer that sends headers and then holds the connection
-  open cannot pin the caller indefinitely. This previously applied only between
-  chunk reads, which let a stalled body outlive the documented 30 seconds, and
-  Antigravity's error-body read had no signal at all.
-- Injected fetch implementations must honor cancellation. The cap does not
-  constrain allocations already performed by the underlying runtime.
-- Tests must not trust a well-behaved response body. A fixture that closes its
-  stream cannot expose an unbounded read, so cancellation and stalled-body paths
-  use a stream that is deliberately left open.
-- Polling rejects results arriving after its deadline, honors cancellation, and
-  does not automatically retry terminal or uncertain exchanges.
-- Provider-owned schemas remain separately validated. Shared helpers are not a
-  substitute for authorization, endpoint validation, or least-privilege consent.
-- Claude's requested permissions are broad and not minimized.
-- No domain accepts API-key configuration. Spettro and Mistral/Vibe still *receive*
-  a service-issued key at sign-in, which Pi stores like any credential.
-- Codex binds a one-shot callback server on `127.0.0.1:1455` during browser sign-in:
-  exact path only, loopback `Host` only, state-checked, first valid callback wins,
-  static pages. Antigravity binds no port.
-- The Antigravity app's OAuth client secret is **never committed, in any encoding**.
-  It is read at run time from `AGY_OAUTH_CLIENT_SECRET` or
-  `~/.config/pi-integrations/agy-oauth-client-secret` (`AGY_OAUTH_CLIENT_SECRET_FILE`
-  overrides the path), and a test fails if the tree contains a secret-shaped literal.
-  It is never stored in credentials, logged, or echoed, and provider messages are
-  redacted of tokens.
-- Spettro custom API bases receive authentication traffic and stored API keys.
-  Only use destinations you trust. Browser links must be HTTPS but Spettro's
-  returned browser hostname is not currently pinned to an allowlist.
-- Mistral/Vibe returned browser/poll URLs are restricted to the configured
-  Console origin/path. No Keychain or Vibe credential files are read.
-- API-key compatibility timestamps are bookkeeping, not server-issued lifetimes.
-- Refresh persistence and cross-process recovery are delegated to Pi and not
-  independently verified here.
-- Pi's inference conversion, headers, event streams, usage estimates, and
-  provider-side access/billing decisions are outside this implementation.
-- This package contains no capture archives, account exports, or production
-  credential fixtures. Do not add them in reports or contributions.
+---
 
-If a credential is exposed, remove it from logs/history and revoke it through
-the provider's supported controls where available. Deleting a local file or
-running Pi's /logout alone does not prove server-side revocation.
+## Security Boundaries & Guarantees
 
-The repository guard decodes before it matches, so an obfuscated secret fails
-the build instead of hiding from it. Base64, base64url, and hex spans are
-decoded, and the text is also matched reversed and with adjacent string literals
-joined, before the credential shapes are applied. Adding an encoding means
-adding it to `views()` and to the canary test in
-`test/agy/no-bundled-secret.test.ts`, which asserts the guard fires for every
-decoding it claims to support.
+### 1. Transport & Cancellation Hardening (`src/shared/http.ts`, `src/shared/sse.ts`)
+- **No Redirects on Credentialed Calls:** Every request sets `redirect: "error"` so bearer tokens and OAuth grants are never forwarded across HTTP redirects.
+- **Signal-Raced Body Reads:** Both the 30-second request timeout and caller `AbortSignal` race every chunk read (`Promise.race([reader.read(), abortRace])`), preventing a peer that sends headers and stalls the body from pinning the process indefinitely.
+- **Bounded Memory:** One-shot HTTP responses are capped at **1 MiB** (`RESPONSE_LIMIT_BYTES`), and SSE streams are capped at **4 MiB per event** (`SSE_MAX_EVENT_BYTES`).
+- **No Automatic Retries on Grants:** Single-use authorization codes and rotating refresh tokens are never retried automatically on transport failure.
 
-Antigravity's provider can also discover the app client secret from the user's
-installed binary when no explicit environment/file value is configured. This
-reads local executable bytes and verifies candidates against Google; the value
-is cached in provider-local memory, never automatically persisted. `AGY_BINARY`
-overrides binary discovery. Binary updates that remove plaintext candidates or
-change Google's verification behavior require updating discovery.
+### 2. Loopback & URL Validation (`src/shared/loopback.ts`, `src/shared/urls.ts`)
+- **Loopback Callback Server (Codex):** Binds `127.0.0.1:1455` for one login attempt, serves `GET` on the exact callback path only, enforces a loopback `Host` header (blocking DNS rebinding), ignores requests with mismatched `state` so stray requests cannot cancel an active login, and serves static HTML that never reflects query parameters.
+- **Origin & HTTPS Pinning:** `safeBaseUrl` requires HTTPS (or explicit loopback HTTP for local development) and rejects embedded credentials, queries, or fragments. `trustedUrl` pins Mistral/Vibe browser and polling URLs to the Console origin and path prefix.
+
+### 3. Antigravity (`agy`) Client Secret Handling
+- **Never Bundled in Any Encoding:** The Antigravity desktop OAuth client secret is an application credential embedded in Google's `agy` binary. It is never committed to this repository.
+- **Multi-Encoding Repository Guard:** `test/agy/no-bundled-secret.test.ts` scans all source, config, and documentation files in raw text, reversed text, concatenated string literals, and decoded `base64`, `base64url`, and `hex` spans, with a canary test proving every decoder fires.
+- **In-Memory Runtime Discovery:** When `AGY_OAUTH_CLIENT_SECRET` and `~/.config/pi-integrations/agy-oauth-client-secret` are unset, `src/domains/agy/secret-resolver.ts` reads the local `agy` binary bytes (never executing the binary), verifies candidates against Google's token endpoint, and caches the accepted secret in memory only.
+- **Token Redaction:** Provider error formatters in Antigravity, Codex, and Claude strip `ya29.`, `1//`, `GOCSPX-`, `sk-ant-`, and `Bearer` token shapes before surfacing diagnostics.
+
+### 4. Local Execution & Credential Persistence
+- **OS Permissions:** Pi extensions and the compiled Apple Foundation Models Swift bridge (`~/.cache/pi-integrations/apple-foundation/apple-fm-bridge-v2`) run with the user's operating-system permissions.
+- **Plaintext Storage:** Pi stores credentials in `~/.pi/agent/auth.json`. Running `/logout` removes the local entry from Pi but does not prove server-side token revocation; revoke exposed tokens in your provider's account settings.

@@ -1,97 +1,66 @@
-# Architecture and reusable components
+# Architecture & Reusable Components
 
-The package has five Pi extension entry points (Claude, Codex, Antigravity, Spettro, Mistral/Vibe). Each domain registers exactly
-one distinct provider and can be filtered out without preventing the others
-from registering. Shared modules contain no provider endpoints or persistent
-credential state.
+`pi-integrations` is organized as **seven independent domain extensions** built on a single zero-endpoint shared library (`src/shared/`). Each domain registers its own provider or virtual models and can be loaded or filtered independently in Pi.
 
-## Reusable exports
-
-The `pi-integrations/shared` package subpath exports:
-
-| Primitive | Responsibility |
-| --- | --- |
-| `requestText` | Injectable fetch, 30-second request signal, redirect refusal, bounded response reading, safe transport errors. Returns status-bearing response metadata plus text for domain parsing. |
-| `requestJson` | Builds on requestText, rejects non-success HTTP statuses with HttpStatusError, parses JSON without echoing bodies. |
-| `RESPONSE_LIMIT_BYTES` | 1 MiB maximum response bytes accepted by the transport. |
-| `safeBaseUrl` | HTTPS API base validation; explicit HTTP loopback development is allowed. Rejects userinfo/query/fragment. |
-| `browserUrl` | Validates an HTTPS browser link; does not impose a provider-specific origin. |
-| `trustedUrl` | Restricts a browser/poll link to an expected HTTPS origin and path boundary. |
-| `generatePKCE` | Fresh 32-byte RFC 7636 verifier and S256 challenge. |
-| `pollUntil` | Generic pending/complete orchestration, cancellation, deadlines, optional delayed first poll, rejection of late results. |
-| `waitFor` | Cancellable production delay with listener cleanup. |
-| `record`, `validSecret` | Small runtime validation helpers. |
-| `apiKeyCredentials` | API-key bookkeeping for Pi's legacy OAuth store; does not create a refresh token or real expiry contract. |
-| `expiryAfter` | Absolute expiry for a token lifetime, reduced by the smaller of five minutes or 10%; rejects non-positive or unrepresentable lifetimes. |
-| `jwtPayload` | Reads a claim from a token the provider just issued. Never verifies the signature; only for routing claims such as an account id. |
-| `startLoopback`, `awaitAuthorizationInput` | One-shot OAuth callback server (exact path, loopback `Host` only, state-checked, first valid callback wins, static pages) and the callback-versus-paste race. Binding failures reject so callers can fall back to pasting. |
-| `iterateSse` | Bounded Server-Sent Events reader: per-event size limit, all line endings, split CRLF/UTF-8, abort that interrupts a pending read. |
-| `SLOW_DOWN_INCREMENT_MS` | RFC 8628 `slow_down` handling: `pollUntil` lengthens its interval by 5 seconds when a poll reports `slowDown`. |
-
-Example using the same production orchestrator with a virtual clock:
-
-```ts
-import { pollUntil } from "pi-integrations/shared";
-
-let now = 0;
-let polls = 0;
-const value = await pollUntil({
-  deadline: 100,
-  intervalMs: 10,
-  now: () => now,
-  sleep: async (ms) => { now += ms; },
-  poll: async () => ++polls === 2
-    ? { state: "complete", value: "synthetic-result" }
-    : { state: "pending" },
-});
+```text
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         decision-router (Virtual)                         │
+│   System One Classifier (vllm-d3-lite / Laya / Jev / Heuristic Fallback)  │
+│   + Live Quota Tracker (Claude / Codex / Agy) + Accuracy/Latency Scorer   │
+└───────┬───────────────┬───────────────┬───────────────┬──────────────┬────┘
+        │               │               │               │              │
+        ▼               ▼               ▼               ▼              ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐ ┌──────────────────┐
+│    claude    │ │    codex     │ │     agy      │ │ spettro  │ │ apple-foundation │
+│ subscription │ │ subscription │ │ subscription │ │  & vibe  │ │ (On-Device 3B)   │
+└──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └────┬─────┘ └────────┬─────────┘
+       │                │                │              │                │
+       └────────────────┴────────────────┼──────────────┘                │
+                                         ▼                               ▼
+                    ┌─────────────────────────────────────────┐   ┌──────────────┐
+                    │               src/shared/               │   │ Native Swift │
+                    │  http · urls · pkce · polling · sse     │   │ Foundation   │
+                    │  credentials · jwt · loopback           │   │ Models Bridge│
+                    └─────────────────────────────────────────┘   └──────────────┘
 ```
 
-In production, omit clock/delay overrides and pass the operation's AbortSignal.
-An injected fetch must honor that signal; no wrapper can force an arbitrary
-non-cooperative replacement to settle. The response cap limits bytes retained
-by this layer, not allocation already performed inside the transport runtime.
+---
 
-## Ownership boundaries
+## Shared Primitives (`pi-integrations/shared`)
 
-- Shared transport does **not** retry operations or interpret provider error
-  bodies. Claude allowlists OAuth error codes in its own parser.
-- Domains own endpoints, requested permissions, response schemas, and terminal
-  errors. The common poller understands only pending and complete; providers
-  interpret denied/expired/error states and throw before returning a result.
-- Claude and Mistral/Vibe share PKCE generation. Both polling domains share
-  the same timing/cancellation implementation. All domains use the same HTTP boundary.
-- Pi owns persistence, model runtime, API conversion, event streams, pricing
-  estimates, and scheduling refreshes. The Antigravity domain is the exception for
-  the inference stream: it builds the request with Pi's exported Google helpers and
-  streams `cloudcode-pa` itself, because Pi's Google adapter rejects a custom fetch.
-- No domain accepts API-key configuration. A provider declares `oauth` and no
-  `apiKey`, which Pi treats as sign-in only; the contract suite enforces this.
-- No singleton tokens, global login attempts, or domain-to-domain credentials
-  are stored in this package.
+`src/shared/index.ts` exports pure, dependency-injected building blocks with zero provider-specific constants:
 
-## Test seams and contracts
+| Primitive | File | Responsibility |
+| --- | --- | --- |
+| `requestText`, `requestJson`, `HttpStatusError`, `RESPONSE_LIMIT_BYTES` | `src/shared/http.ts` | 30-second timeout, caller `AbortSignal` racing on both headers and body chunks, `redirect: "error"`, 1 MiB response cap, and sanitized transport errors. |
+| `safeBaseUrl`, `browserUrl`, `trustedUrl` | `src/shared/urls.ts` | Enforces HTTPS (or explicit loopback HTTP for base URLs), rejects userinfo/query/fragment on base URLs, and pins polling/browser URLs to trusted origins. |
+| `generatePKCE` | `src/shared/pkce.ts` | Generates fresh 32-byte cryptographic verifiers and S256 `base64url` challenges (RFC 7636). |
+| `pollUntil`, `waitFor`, `SLOW_DOWN_INCREMENT_MS` | `src/shared/polling.ts` | Deadline-clamped polling orchestrator with RFC 8628 `slow_down` (+5s) backoff, `delayFirst`, and injectable virtual clock/sleep for instant tests. |
+| `validSecret`, `apiKeyCredentials`, `expiryAfter`, `record` | `src/shared/credentials.ts` | Rejects whitespace/control characters in secrets, computes token expiry with a `min(5m, 10%)` safety margin, and wraps API keys for Pi's OAuth store. |
+| `jwtPayload` | `src/shared/jwt.ts` | Decodes `base64url` JWT claims (such as `chatgpt_account_id` or email) for routing without trusting unverified signatures for authorization. |
+| `startLoopback`, `awaitAuthorizationInput` | `src/shared/loopback.ts` | One-shot `127.0.0.1` OAuth callback server (DNS-rebinding guard, exact path, state check) and race helper against manual pasted input. |
+| `iterateSse`, `SSE_MAX_EVENT_BYTES` | `src/shared/sse.ts` | Streaming Server-Sent Events parser handling CRLF/LF/CR, UTF-8 BOM, split multi-byte characters, 4 MiB per-event cap, and abort-raced reads. |
 
-`test/support/fixtures.ts` provides sequenceFetch, virtualClock, and
-loginCallbacks. Fixtures contain synthetic values only.
+---
 
-The package contract suite checks isolated registration, combined registration,
-distinct provider IDs, manifest entry points, unchanged transcript context,
-and preservation of caller options/event-stream identity at the delegate seam.
-It does not simulate the complete Pi streaming implementation or live provider.
+## Domain Responsibilities
 
-## Adding a domain
+| Domain | Directory | What It Owns | How Inference Runs |
+| --- | --- | --- | --- |
+| **Claude** | `src/domains/claude/` | PKCE OAuth (`claude.com` → `platform.claude.com`), system-prompt subscription gate (`gate.ts`), and 4xx protocol-drift diagnostics (`diagnostics.ts`). | Delegates to Pi's `anthropicMessagesApi`, wrapped by `subscriptionGateStreamSimple`. |
+| **Codex** | `src/domains/codex/` | ChatGPT PKCE OAuth (loopback `:1455`, paste fallback, and device-code flow) + live `/backend-api/codex/models` catalog with static fallback. | Delegates to Pi's `openAICodexResponsesApi`. |
+| **Antigravity** | `src/domains/agy/` | Google Desktop PKCE OAuth, automatic in-memory `agy` binary secret resolver, `loadCodeAssist`, `fetchAvailableModels`, and `antigravity/cli/` UA gate. | Custom `cloudcode-pa` SSE streamer (`stream.ts`) built with Pi's exported Google message/tool converters. |
+| **Spettro** | `src/domains/spettro/` | Browser device-session initiation, polling, and live `/v1/models` catalog discovery + persistence. | Delegates to Pi's `openAICompletionsApi` (`supportsDeveloperRole: false`). |
+| **Mistral Vibe** | `src/domains/mistral-vibe/` | Console PKCE sign-in process creation, polling, and API-key exchange, scoped to `mistral-large-4`. | Delegates to Pi's `mistralConversationsApi`. |
+| **Apple Foundation** | `src/domains/apple-foundation/` | macOS 26+ `FoundationModels` availability check, auto-enablement on Apple Silicon, full tool JSON Schema extraction, and cached Swift bridge (`apple-fm-bridge-v2`). | Custom local streamer invoking `LanguageModelSession` (`streamResponse` or `@Generable` tool calls). |
+| **Decision Router** | `src/domains/decision-router/` | System One classifier client (`vllm-d3-lite` / `Laya` / `Jev`), live subscription quota probes (`quota.ts`), accuracy/latency/cost utility scorer (`classifier.ts`), and virtual model definitions (`router.ts`). | Resolves to a physical `Model<Api>` per turn; Pi dispatches directly to the chosen physical provider. |
 
-1. Add `src/domains/<name>/provider.ts` with a dependency-injected configuration
-   factory, and a small `index.ts` for Pi runtime imports/registration.
-2. Choose a unique provider ID and document credential/billing semantics. Offer
-   sign-in only: no `apiKey`, no key or token read from the environment.
-3. Reuse shared primitives only where the protocol actually matches. Do not
-   force an API-key exchange into an OAuth refresh model.
-4. Write failing flow/validation tests first; use shared synthetic fixtures.
-5. Add the manifest entry and registration/delegation contracts.
-6. Document observed protocol sources and unverified behavior.
-7. Run Bun type-checks, all test domains, offline Pi registration, and a secret
-   scan before publishing. Never use CI credentials or live sign-in as fixtures.
+---
 
-This is a focused internal component library, not an attempt to model every
-authentication protocol behind one universal abstraction.
+## Adding a New Domain
+
+1. Create `src/domains/<name>/provider.ts` exporting a dependency-injected factory (`create<Name>Provider(deps)`) and `src/domains/<name>/index.ts` for Pi registration.
+2. Reuse `src/shared/` primitives where protocol semantics match. Never hardcode live credentials or read user token stores in tests.
+3. If the domain refreshes a live model catalog, restore from `context.stored` when `!context.allowNetwork` and call `await context.publish({ persist: { models, checkedAt } })` on network success so the catalog persists in `models-store.json`.
+4. Write red-first unit tests under `test/<name>/` and add the entry point to `package.json`, `test/package/contracts.test.ts`, and `scripts/smoke-registration.sh`.
+5. Run `bun run ci` to verify type-checking, test coverage, and offline CLI registration.

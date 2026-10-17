@@ -1,124 +1,40 @@
-# Codex domain
+# Codex Subscription Domain (`codex-subscription`)
 
-Provider ID: `codex-subscription`. Login label: **Codex Subscription (experimental)**.
-Sign-in only: there is no API-key configuration.
+- **Provider ID:** `codex-subscription`
+- **Login Label:** **Codex Subscription (experimental)**
+- **Credential Type:** OAuth 2.0 PKCE (`S256`) with rotating refresh tokens + `chatgpt_account_id` JWT claim
 
-## Which sign-in this is
+---
 
-This is the **Codex CLI's own ChatGPT sign-in** (its public client id), which
-reaches the ChatGPT backend that Codex uses. It is **not** the "Sign in with
-ChatGPT" token-sharing flow that Pi's `openai` provider offers (dynamic client
-registration, tokens sent straight to `api.openai.com`). The two use different
-clients, endpoints, and credentials, and can both be signed in at once. Pi also
-ships a legacy `openai-codex` provider with the same protocol; this domain has
-its own provider ID and credential, so neither replaces the other.
+## Overview
 
-## Browser sign-in
+This domain implements the **Codex CLI's own ChatGPT sign-in** (`app_EMoamEEZ73f0CkXaXp7hrann`), reaching the ChatGPT Codex backend (`https://chatgpt.com/backend-api`). It is separate from Pi's `openai` token-sharing login and coexists with Pi's built-in providers without replacing them.
 
-1. Choose **Browser sign-in** at the method prompt (it is also the default when the
-   host cannot show a prompt).
-2. The domain binds a one-shot callback server on `127.0.0.1:1455` and shows
-   the authorization link (PKCE S256, `redirect_uri=http://localhost:1455/auth/callback`).
-3. After you approve, the browser redirects to the callback and sign-in finishes
-   on its own. If your host provides `onManualCodeInput`, a pasted redirect URL
-   can win the race instead.
-4. If port 1455 is busy (the Codex CLI uses it too), the domain falls back to
-   asking you to paste the full redirect URL. The pasted state must match; there is
-   no bare-code shortcut.
+---
 
-The callback server accepts only `GET` on the exact path, requires a loopback
-`Host` header (blocks DNS rebinding), ignores requests with a wrong state instead
-of letting them cancel your login, accepts the first valid callback only, and
-serves static pages that never echo the query string.
+## Sign-In Methods
 
-## Device-code sign-in
+Run `/login` and choose **Codex Subscription (experimental)**:
 
-For headless machines: choose **Device code sign-in**, open
-`https://auth.openai.com/codex/device`, and enter the one-time code. The domain
-polls `.../api/accounts/deviceauth/token` for up to 15 minutes, honors
-`slow_down` by lengthening the interval 5 seconds each time (RFC 8628), clamps a
-server-supplied interval to 1 to 60 seconds, and then exchanges the returned
-code. No port is bound and no browser link is shown.
+### 1. Browser Sign-In (Default)
+- Binds a one-shot callback server on `127.0.0.1:1455/auth/callback` and opens `https://auth.openai.com/oauth/authorize`.
+- The loopback server accepts `GET` on the exact callback path only, enforces a loopback `Host` header (DNS-rebinding protection), ignores mismatched `state` requests without aborting your login, and closes immediately after the first valid callback.
+- **Automatic Port-Collision Fallback:** If port `1455` is already in use (for example by a running Codex CLI), sign-in seamlessly falls back to prompting you to paste the final redirect URL (`http://localhost:1455/auth/callback?code=...&state=...`).
 
-## Credentials
+### 2. Device-Code Sign-In (Headless / SSH / Containers)
+- Requests a one-time code from `https://auth.openai.com/api/accounts/deviceauth/usercode`.
+- Open `https://auth.openai.com/codex/device` and enter the displayed code.
+- Polls `/api/accounts/deviceauth/token` for up to 15 minutes, honoring RFC 8628 `slow_down` (+5s interval backoff), then exchanges the returned grant at `https://auth.openai.com/oauth/token`.
 
-Token endpoint: `https://auth.openai.com/oauth/token` (form-encoded). A credential
-is the access token, a **rotating, single-use** refresh token, an expiry reduced by
-the smaller of five minutes or 10% of the lifetime, and the ChatGPT account id.
-The account id is read from the access token's `https://api.openai.com/auth`
-claim and is required; a token without it is refused. The claim is read without
-verifying the signature, which is fine because it only routes the request and the
-server validates the token.
+> [!WARNING]
+> **Do not copy tokens out of `~/.codex/auth.json`.** Codex refresh tokens are rotating and single-use; sharing one refresh token across two clients will invalidate one of the sessions. Always sign in separately.
 
-Errors expose only an allowlisted OAuth error code, never the provider's
-description. Nothing is retried: a grant may already be consumed. Do not copy
-tokens out of `~/.codex/auth.json`; sharing one refresh token between two clients
-can invalidate the other (not tested here), so sign in separately.
+---
 
-## Entitlement
+## Live Model Catalog & Static Fallback (`src/domains/codex/catalog.ts`)
 
-This domain resolves **no** entitlement or plan verification of its own. Sign-in
-proves the account authenticated; it does not prove the account has a ChatGPT
-plan that covers this client, and login never asks. `login` returns credentials
-and nothing else: no plan check, no tier lookup, no entitlement call. The account
-id is read from the access token's own claim (`accountIdOf`), which is an
-identifier, not a permission.
+When Pi refreshes model catalogs, `codex-subscription` queries `GET https://chatgpt.com/backend-api/codex/models` with your bearer token:
 
-What the domain does verify is the **model catalog**, live, at
-`https://chatgpt.com/backend-api/codex/models`, and treats it as the account's
-answer to "what can I use".
-
-> **Unverified.** The endpoint path and the response vocabulary (`slug`,
-> `display_name`, `context_window`, `max_output_tokens`,
-> `supported_reasoning_levels`, `default_reasoning_level`, `visibility`,
-> `supported_in_api`) come from strings in the shipped `codex` CLI (0.163.0),
-> **not** from an observed response. The exact JSON envelope is not pinned by
-> those strings, so `parseCatalog` accepts the models at the top level, under
-> `models`, or nested one level down. No live response has been seen. If the
-> endpoint or shape differs, this degrades to the static catalog silently.
-
-Behavior that holds regardless of that uncertainty:
-
-- **Pi's static catalog is always the fallback.** Every failure — 401, 403, 404,
-  429, 5xx, invalid JSON, an unrecognized envelope, an empty list, a network
-  error — returns the full static `getModels("openai-codex")` list. `refreshModels`
-  never throws. A wrong guess about the protocol cannot leave you with no models.
-- **An empty catalog is treated as a failure**, not as "your plan has no models",
-  because the second conclusion would discard a working static list.
-- **Models the server omits are dropped**, not re-added from the static catalog.
-  That is the point of discovery: a withdrawn model stops being offered.
-- **Models the server adds are shown**, even when Pi's static catalog has never
-  heard of them, with the server's limits.
-- Limits come from the server. Pricing is inherited from Pi's static entry for
-  the same slug, because a subscription is not billed per token and the live
-  catalog carries no prices.
-- Only reasoning levels the server actually reported are advertised.
-
-So entitlement still ends where it ends for inference: Pi's inference layer
-decides what is permitted, and a 403 from the backend is the first real signal.
-The catalog narrows what is *offered*; it does not grant anything. Compare
-[Antigravity](#entitlement), which does resolve a Cloud Code project and tier at
-sign-in but likewise does not enforce them.
-
-## Inference
-
-Pi's `openai-codex-responses` implementation and its 9-model Codex catalog are
-reused unchanged. The streamer takes the account id from the access token it is
-given. Prices shown are API list-price estimates; a ChatGPT subscription is not
-billed per token. `bun run verify:pricing` checks them against OpenAI's page
-(8 of 9 match; `gpt-5.3-codex-spark` has no official row), see [pricing](../pricing.md).
-
-## What is and is not verified
-
-Verified by tests (synthetic data, injected fetch and loopback): the authorization
-URL parameters, PKCE binding, every pasted-input form and rejection, token
-validation, the account-id requirement, refresh, the device flow including
-`slow_down`, cancellation, cleanup of the callback server, credential-safe errors,
-and every catalog fallback path.
-
-**Not verified:** a live sign-in, a live inference turn, entitlement for your plan,
-the model catalog endpoint and its response shape (see
-[Entitlement](#entitlement)), refresh at real expiry, and whether the `originator`
-value (`pi`, as Pi's own Codex login sends) is accepted indefinitely. The endpoints
-and parameters follow Pi's bundled Codex login and strings in the Codex CLI binary;
-they are not a published third-party contract and may change.
+- **Live Discovery:** Parses the account's model slugs, display names, `context_window`, `max_output_tokens`, and `supported_reasoning_levels`, persists them via `context.publish({ persist })`, and drops models withdrawn from your account.
+- **Guaranteed Fallback:** Every failure path (`401`, `403`, `404`, `429`, `5xx`, network error, or unrecognized JSON envelope) silently falls back to Pi's static `getModels("openai-codex")` catalog so a protocol change never leaves you without models.
+- **Quota Integration:** The [Decision Router](decision-router.md) also probes `GET https://chatgpt.com/backend-api/codex/usage` to read your 5-hour (`primary_window`) and 7-day (`secondary_window`) utilization and per-model availability (`model_usage`).
