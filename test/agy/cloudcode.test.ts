@@ -38,10 +38,11 @@ test("request headers carry the bearer token and an honest user agent", () => {
 	const headers = requestHeaders(TOKEN);
 	assert.equal(headers.Authorization, `Bearer ${TOKEN}`);
 	assert.equal(headers["User-Agent"], USER_AGENT);
-	// The backend gates the consumer project on the UA naming the Antigravity
-	// client (verified live: same token, project only with this prefix). Ours
+	// The backend gates on the antigravity/cli/ prefix (verified live, three
+	// endpoints): loadCodeAssist accepts any antigravity UA, but the catalog's
+	// content and the stream's model routing require this exact prefix. Ours
 	// leads with it and keeps this package's identity after.
-	assert.match(USER_AGENT, /^antigravity-[0-9.]+ /);
+	assert.match(USER_AGENT, /^antigravity\/cli\/[0-9.]+ /);
 	assert.match(USER_AGENT, /pi-integrations\//);
 });
 

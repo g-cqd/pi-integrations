@@ -18,22 +18,31 @@ export const DEFAULT_BASE_URL = "https://daily-cloudcode-pa.googleapis.com";
 export const PRODUCTION_BASE_URL = "https://cloudcode-pa.googleapis.com";
 export const PLUGIN_VERSION = "0.1.0";
 /**
- * The Antigravity client version this domain presents. Must lead the User-Agent
- * (see USER_AGENT): the backend gates the consumer Cloud Code project on the
- * UA naming the Antigravity client, established by live bisection on
- * 2026-10-17 — the same token and account receives a project with
- * `antigravity-1.4.0` in the UA and `ineligibleTiers: [UNSUPPORTED_CLIENT]`
- * without it. The metadata fields (ideName, versions) are NOT checked.
+ * The Antigravity client version this domain presents. Must appear as
+ * `antigravity/cli/<version>` in the User-Agent (see USER_AGENT), because the
+ * backend gates on that prefix — established by live bisection on 2026-10-17:
+ *
+ *   - `loadCodeAssist` grants the consumer project to any UA containing
+ *     "antigravity"; `antigravity-1.4.0 …` was enough.
+ *   - `fetchAvailableModels` gates its CONTENT on the prefix
+ *     `antigravity/cli/`: the same token receives the full 29-model catalog
+ *     (including gemini-4-argon and the expanded tiered ids) with
+ *     `antigravity/cli/1.4.0 …`, and a reduced 23-model catalog without it.
+ *   - `streamGenerateContent` gates model routing on the same prefix:
+ *     `gemini-4-argon-medium` and the expanded tiered ids answer 404 without it
+ *     and 200 with it, from the same token, same envelope otherwise.
+ *
+ * The exact version number is not validated (`antigravity/cli/9.9.9` passes),
+ * and this package's own identity may follow in the same header, so it does —
+ * requests stay attributable. This is a first-party identity claim required to
+ * use the account's own catalog; see docs/domains/agy.md#terms.
  */
 export const CLIENT_VERSION = "1.4.0";
 /**
- * Leads with the Antigravity client identity the backend gates on, and keeps
- * this package's own identity after it, so requests stay attributable. This is
- * a first-party identity claim required to use the account's own project; see
- * docs/domains/agy.md#terms for the risk assessment, the same call the Claude
- * gate documents.
+ * Leads with `antigravity/cli/<version>` (the prefix the backend gates on) and
+ * keeps this package's identity after it.
  */
-export const USER_AGENT = `antigravity-${CLIENT_VERSION} pi-integrations/${PLUGIN_VERSION} (agy-subscription)`;
+export const USER_AGENT = `antigravity/cli/${CLIENT_VERSION} pi-integrations/${PLUGIN_VERSION} (agy-subscription)`;
 
 export function resolveBaseUrl(env: Record<string, string | undefined> = process.env): string {
 	return safeBaseUrl(env.AGY_API_URL?.trim() || DEFAULT_BASE_URL);
