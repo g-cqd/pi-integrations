@@ -50,3 +50,11 @@ commitment is currently offered.
 If a credential is exposed, remove it from logs/history and revoke it through
 the provider's supported controls where available. Deleting a local file or
 running Pi's /logout alone does not prove server-side revocation.
+
+The repository guard decodes before it matches, so an obfuscated secret fails
+the build instead of hiding from it. Base64, base64url, and hex spans are
+decoded, and the text is also matched reversed and with adjacent string literals
+joined, before the credential shapes are applied. Adding an encoding means
+adding it to `views()` and to the canary test in
+`test/agy/no-bundled-secret.test.ts`, which asserts the guard fires for every
+decoding it claims to support.

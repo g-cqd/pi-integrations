@@ -38,6 +38,7 @@
     "test:contracts": "bun test test/package",
     "test:coverage": "bun test --coverage",
     "verify:pricing": "bun scripts/verify-pricing.ts",
+    "agy:extract-secret": "./scripts/extract-agy-client-secret.sh",
     "test:codex": "bun test test/codex",
     "test:agy": "bun test test/agy"
   },

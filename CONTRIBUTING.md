@@ -18,6 +18,16 @@ or access local credential stores in automated tests/CI. Never commit captures,
 account exports, tokens, browser authorization strings, session transcripts,
 or local Pi configuration.
 
+Two consequences for the `agy` secret, which is a live credential of the app:
+
+- Tests must inject the file reader. A resolver called without one reads the
+  real `~/.config/pi-integrations/agy-oauth-client-secret`, so a developer who
+  followed the documented setup would see unrelated tests fail, and a local
+  credential would leak into test output.
+- `scripts/extract-agy-client-secret.sh` is an operator tool, not a test. It makes
+  a real token-endpoint request by design, so it is deliberately outside CI and
+  outside the test suites.
+
 ## Code boundaries
 
 - Add protocol behavior to its domain, not to another domain.

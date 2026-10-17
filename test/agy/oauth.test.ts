@@ -5,7 +5,7 @@ import {
 	AUTHORIZE_URL, CLIENT_ID, CLIENT_SECRET_ENV, CLIENT_SECRET_FILE_ENV, DEFAULT_CLIENT_SECRET_FILE, REDIRECT_URI, SCOPES, TOKEN_URL,
 	buildAuthorizeUrl, exchangeAuthorizationCode, parseAuthorizationInput, refreshCredentials, readSecretFileSync,
 	requireClientSecret, resolveClientSecret, secretFromEnv, secretFromFile,
-	type AgyCredentials,
+	type AgyCredentials, type ReadSecretFile,
 } from "../../src/domains/agy/oauth.ts";
 import { syntheticJwt } from "../support/jwt.ts";
 import { sequenceFetch } from "../support/fixtures.ts";
@@ -62,14 +62,28 @@ test("the secret is read from the environment, trimmed, and blank means unset", 
 });
 
 test("the environment wins, blank means unset, and the file is the fallback", () => {
+	// No injected reader means the real filesystem, so pass an empty one: a test
+	// must never pick up a credential actually present on the machine running it.
+	const noFile: ReadSecretFile = () => undefined;
 	const withFile = (env: Record<string, string | undefined>) => secretFromFile(env, (path) => path === expand(DEFAULT_CLIENT_SECRET_FILE) ? "  file-value  " : undefined);
-	assert.equal(resolveClientSecret({}), undefined, "nothing configured means no secret");
-	assert.equal(resolveClientSecret({ AGY_OAUTH_CLIENT_SECRET: "  env-value  " }), "env-value");
+	assert.equal(resolveClientSecret({}, noFile), undefined, "nothing configured means no secret");
+	assert.equal(resolveClientSecret({ AGY_OAUTH_CLIENT_SECRET: "  env-value  " }, noFile), "env-value");
 	assert.equal(resolveClientSecret({ AGY_OAUTH_CLIENT_SECRET: "   ", AGY_OAUTH_CLIENT_SECRET_FILE: "/custom/path" }, (p) => p === "/custom/path" ? "file-value" : undefined), "file-value");
 	assert.equal(withFile({}), "file-value");
 	assert.equal(secretFromFile({}, () => undefined), undefined);
 	assert.equal(secretFromFile({}, () => "   "), undefined, "a blank file means unset");
 	assert.equal(resolveClientSecret({ AGY_OAUTH_CLIENT_SECRET: "env" }, () => "file"), "env", "the environment takes precedence");
+});
+
+test("the resolvers are hermetic when a reader is injected", () => {
+	// A machine running the suite may legitimately have the secret configured at
+	// the default path. Resolution is therefore always reader-injected, and these
+	// assertions hold regardless of what is on disk: they fail if a resolver
+	// reaches past the injected reader into the real filesystem, which would let
+	// a local credential into an otherwise hermetic test.
+	assert.equal(secretFromFile({}, () => undefined), undefined);
+	assert.equal(resolveClientSecret({}, () => undefined), undefined);
+	assert.equal(resolveClientSecret({}, () => "injected"), "injected");
 });
 
 test("the default path expands ~ and is overridable", () => {
@@ -90,7 +104,7 @@ test("with nothing configured the resolvers yield nothing and no request is made
 	delete process.env[CLIENT_SECRET_ENV]; delete process.env[CLIENT_SECRET_FILE_ENV];
 	try {
 		const f = sequenceFetch([tokenBody()]);
-		await assert.rejects(exchangeAuthorizationCode({ code: CODE, codeVerifier: "v", fetchImpl: f.fetchImpl, now: () => NOW }), new RegExp(CLIENT_SECRET_ENV));
+		await assert.rejects(exchangeAuthorizationCode({ code: CODE, codeVerifier: "v", fetchImpl: f.fetchImpl, now: () => NOW, clientSecret: () => undefined }), new RegExp(CLIENT_SECRET_ENV));
 		assert.equal(f.calls.length, 0);
 	} finally {
 		if (saved === undefined) delete process.env[CLIENT_SECRET_ENV]; else process.env[CLIENT_SECRET_ENV] = saved;
