@@ -31,6 +31,27 @@ keeps the refresh token, and a rotated one is adopted when sent.
 The CLI's other method, "Use a Google Cloud project", is **not implemented**. Google's
 device-code flow does not work for this client (it answers `invalid_client`).
 
+## Entitlement
+
+Unlike [Codex](../codex.md#entitlement), this domain does resolve entitlement at
+sign-in. `login` calls `loadCodeAssist` with `FULL_ELIGIBILITY_CHECK` and stores
+`projectId` and, when the server reports one, `tierId` with the credential,
+because inference requests must carry the project. An account with no project
+fails sign-in with the server's `ineligibleTiers` reason codes rather than
+discovering it at first use.
+
+`refreshModels` then reads the **account's** model list live and sorts the
+server's `defaultAgentModelId` first, so what you see reflects your tier rather
+than a static catalog. Two limits are honest:
+
+- Tier is recorded but never enforced. `tierId` is stored for diagnostics; nothing
+  compares it against what a model requires, because the server does not publish
+  per-tier model requirements. A 403 at inference is still the real signal, and
+  `describeFailure` reports it as tier, onboarding, or client identity.
+- The project and tier come from one call at sign-in. They are kept on refresh,
+  not re-verified, so a downgrade or a revoked project is not noticed until a
+  request fails.
+
 ## The client secret
 
 Google's token endpoint refuses this Desktop client without its secret: an anonymous

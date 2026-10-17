@@ -9,7 +9,7 @@ through `/login`; none accepts API-key configuration.**
 | Domain | Pi provider ID | Sign-in | What the service returns |
 | --- | --- | --- | --- |
 | [Claude](docs/domains/claude.md) | `claude-subscription` | Browser authorization + pasted `code#state`, PKCE | OAuth access and rotating refresh tokens |
-| [Codex](docs/domains/codex.md) | `codex-subscription` | ChatGPT sign-in via the Codex CLI client: browser (loopback or pasted redirect) or device code | OAuth access and rotating refresh tokens |
+| [Codex](docs/domains/codex.md) | `codex-subscription` | ChatGPT sign-in via the Codex CLI client: browser (loopback or pasted redirect) or device code | OAuth access and rotating refresh tokens, plus a live model catalog (falling back to Pi's static list) |
 | [Antigravity](docs/domains/agy.md) | `agy-subscription` | Google sign-in with a pasted authorization code, PKCE (needs the Antigravity app's OAuth client secret, supplied locally, see the doc) | OAuth access and refresh tokens, plus a Cloud Code project |
 | [Spettro](docs/domains/spettro.md) | `spettro` | Browser device session + polling | A device API key; no refresh endpoint implemented |
 | [Mistral/Vibe](docs/domains/mistral-vibe.md) | `mistral-vibe` | Browser approval + PKCE polling/exchange | A Mistral API key, **not** an OAuth refresh token |
@@ -18,6 +18,11 @@ through `/login`; none accepts API-key configuration.**
 entitlement, subscription billing, model availability, or zero charges. Review
 each provider's terms and permissions. This project is not affiliated with the
 providers or Pi maintainers.
+
+A model catalog is not an entitlement check. Codex and Antigravity both read the
+account's available models live and fall back to a static list on any failure, but
+neither enforces a plan: they narrow what is *offered*, not what is permitted. A
+403 from an inference request is still the first real signal.
 
 ## Install once, then start Pi normally
 

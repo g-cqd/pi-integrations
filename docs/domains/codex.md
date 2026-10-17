@@ -55,6 +55,51 @@ description. Nothing is retried: a grant may already be consumed. Do not copy
 tokens out of `~/.codex/auth.json`; sharing one refresh token between two clients
 can invalidate the other (not tested here), so sign in separately.
 
+## Entitlement
+
+This domain resolves **no** entitlement or plan verification of its own. Sign-in
+proves the account authenticated; it does not prove the account has a ChatGPT
+plan that covers this client, and login never asks. `login` returns credentials
+and nothing else: no plan check, no tier lookup, no entitlement call. The account
+id is read from the access token's own claim (`accountIdOf`), which is an
+identifier, not a permission.
+
+What the domain does verify is the **model catalog**, live, at
+`https://chatgpt.com/backend-api/codex/models`, and treats it as the account's
+answer to "what can I use".
+
+> **Unverified.** The endpoint path and the response vocabulary (`slug`,
+> `display_name`, `context_window`, `max_output_tokens`,
+> `supported_reasoning_levels`, `default_reasoning_level`, `visibility`,
+> `supported_in_api`) come from strings in the shipped `codex` CLI (0.163.0),
+> **not** from an observed response. The exact JSON envelope is not pinned by
+> those strings, so `parseCatalog` accepts the models at the top level, under
+> `models`, or nested one level down. No live response has been seen. If the
+> endpoint or shape differs, this degrades to the static catalog silently.
+
+Behavior that holds regardless of that uncertainty:
+
+- **Pi's static catalog is always the fallback.** Every failure — 401, 403, 404,
+  429, 5xx, invalid JSON, an unrecognized envelope, an empty list, a network
+  error — returns the full static `getModels("openai-codex")` list. `refreshModels`
+  never throws. A wrong guess about the protocol cannot leave you with no models.
+- **An empty catalog is treated as a failure**, not as "your plan has no models",
+  because the second conclusion would discard a working static list.
+- **Models the server omits are dropped**, not re-added from the static catalog.
+  That is the point of discovery: a withdrawn model stops being offered.
+- **Models the server adds are shown**, even when Pi's static catalog has never
+  heard of them, with the server's limits.
+- Limits come from the server. Pricing is inherited from Pi's static entry for
+  the same slug, because a subscription is not billed per token and the live
+  catalog carries no prices.
+- Only reasoning levels the server actually reported are advertised.
+
+So entitlement still ends where it ends for inference: Pi's inference layer
+decides what is permitted, and a 403 from the backend is the first real signal.
+The catalog narrows what is *offered*; it does not grant anything. Compare
+[Antigravity](#entitlement), which does resolve a Cloud Code project and tier at
+sign-in but likewise does not enforce them.
+
 ## Inference
 
 Pi's `openai-codex-responses` implementation and its 9-model Codex catalog are
@@ -68,10 +113,12 @@ billed per token. `bun run verify:pricing` checks them against OpenAI's page
 Verified by tests (synthetic data, injected fetch and loopback): the authorization
 URL parameters, PKCE binding, every pasted-input form and rejection, token
 validation, the account-id requirement, refresh, the device flow including
-`slow_down`, cancellation, cleanup of the callback server, and credential-safe errors.
+`slow_down`, cancellation, cleanup of the callback server, credential-safe errors,
+and every catalog fallback path.
 
 **Not verified:** a live sign-in, a live inference turn, entitlement for your plan,
-refresh at real expiry, and whether the `originator` value (`pi`, as Pi's own
-Codex login sends) is accepted indefinitely. The endpoints and parameters follow
-Pi's bundled Codex login and strings in the Codex CLI binary; they are not a
-published third-party contract and may change.
+the model catalog endpoint and its response shape (see
+[Entitlement](#entitlement)), refresh at real expiry, and whether the `originator`
+value (`pi`, as Pi's own Codex login sends) is accepted indefinitely. The endpoints
+and parameters follow Pi's bundled Codex login and strings in the Codex CLI binary;
+they are not a published third-party contract and may change.

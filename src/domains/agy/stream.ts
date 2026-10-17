@@ -96,18 +96,39 @@ let toolCallCounter = 0;
 
 interface Deps { baseUrl: string; fetchImpl?: FetchImplementation; now?: () => number; newId?: () => string }
 
-async function readBounded(response: Response, limit: number): Promise<string> {
+/**
+ * Read at most `limit` bytes of an error body, for a diagnostic message.
+ *
+ * The read is raced against `signal`: a provider can return a status and then
+ * hold the connection open without sending the body, and `reader.read()` never
+ * settles for a stream that is open but idle. Without this a stalled error
+ * response would hang the caller with no way to recover.
+ */
+async function readBounded(response: Response, limit: number, signal?: AbortSignal): Promise<string> {
 	try {
 		const reader = response.body?.getReader();
 		if (!reader) return "";
 		const chunks: Uint8Array[] = []; let size = 0;
+		let onAbort: (() => void) | undefined;
 		try {
 			while (size < limit) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				chunks.push(value); size += value.byteLength;
+				if (signal?.aborted) return "";
+				const abortRace = new Promise<never>((_, reject) => {
+					const listener = () => reject(signal?.reason ?? new Error("aborted"));
+					onAbort = listener;
+					if (signal?.aborted) listener();
+					else signal?.addEventListener("abort", listener, { once: true });
+				});
+				const step = signal ? await Promise.race([reader.read(), abortRace]) : await reader.read();
+				if (onAbort) signal?.removeEventListener("abort", onAbort);
+				if (step.done) break;
+				chunks.push(step.value); size += step.value.byteLength;
 			}
-		} finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+		} finally {
+			if (onAbort && signal) signal.removeEventListener("abort", onAbort);
+			await reader.cancel().catch(() => {});
+			reader.releaseLock();
+		}
 		const bytes = new Uint8Array(size); let offset = 0;
 		for (const c of chunks) { bytes.set(c, offset); offset += c.byteLength; }
 		return new TextDecoder().decode(bytes).slice(0, limit);
@@ -154,7 +175,8 @@ export function createAgyStreamSimple(deps: Deps): NonNullable<ProviderConfig["s
 					throw new Error("Antigravity network request failed.");
 				} finally { clearTimeout(timer); }
 				if (!response.ok) {
-					throw new Error(describeFailure("Antigravity request", response.status, response.headers, await readBounded(response, ERROR_BODY_LIMIT)));
+					throw new Error(describeFailure("Antigravity request", response.status, response.headers,
+						await readBounded(response, ERROR_BODY_LIMIT, options?.signal)));
 				}
 				if (!response.body) throw new Error("Antigravity returned an empty stream.");
 				push({ type: "start", partial: output });

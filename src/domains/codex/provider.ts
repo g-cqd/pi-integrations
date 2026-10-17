@@ -13,6 +13,9 @@ import {
 	buildAuthorizeUrl, CALLBACK_PATH, CALLBACK_PORT, DEVICE_CODE_TIMEOUT_MS, DEVICE_REDIRECT_URI, DEVICE_VERIFICATION_URI,
 	exchangeAuthorizationCode, parseAuthorizationInput, pollDeviceAuthOnce, refreshCredentials, REDIRECT_URI, startDeviceAuth,
 } from "./oauth.ts";
+import { fetchCodexCatalog } from "./catalog.ts";
+import { mergeCatalog, staticModels } from "./models.ts";
+import { validSecret } from "../../shared/index.ts";
 
 export const PROVIDER_ID = "codex-subscription";
 export const DISPLAY_NAME = "Codex Subscription (experimental)";
@@ -25,6 +28,8 @@ interface Dependencies extends HttpOptions {
 	streamSimple: NonNullable<ProviderConfig["streamSimple"]>;
 	now?: () => number;
 	sleep?: typeof waitFor;
+	/** Override the catalog host. Defaults to the host observed in the `codex` CLI. */
+	baseUrl?: string;
 	/** Injectable so tests never bind port 1455. */
 	startLoopback?: (options: LoopbackOptions) => Promise<LoopbackServer>;
 }
@@ -120,6 +125,27 @@ export function createCodexProvider(deps: Dependencies): ProviderConfig {
 			login,
 			refreshToken: (credentials, signal) => refreshCredentials(credentials, http(signal)),
 			getApiKey: (credentials) => credentials.access,
+		},
+		refreshModels: async (context) => {
+			// Pi's static catalog is always the fallback: discovery is an
+			// improvement, never a dependency. Any failure leaves the user with
+			// exactly the models they had before.
+			const fallback = staticModels();
+			if (!context.allowNetwork) return fallback;
+			const credential = context.credential as { access?: unknown } | undefined;
+			if (!credential || !validSecret(credential.access)) return fallback;
+			try {
+				const remote = await fetchCodexCatalog(credential.access, {
+					fetchImpl: deps.fetchImpl, signal: context.signal, baseUrl: deps.baseUrl,
+				});
+				// An empty catalog means "nothing to offer", which is worse than
+				// the static list, so it is treated as a failed refresh.
+				return remote.length > 0 ? mergeCatalog(remote, fallback) : fallback;
+			} catch {
+				// The endpoint is unverified, so a 404 must not surface as an error
+				// for a feature that is strictly optional.
+				return fallback;
+			}
 		},
 	};
 }

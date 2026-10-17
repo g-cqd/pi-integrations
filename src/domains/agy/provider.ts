@@ -6,7 +6,7 @@
 import type { OAuthLoginCallbacks } from "@earendil-works/pi-ai/compat";
 import type { ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { generatePKCE, validSecret, type HttpOptions } from "../../shared/index.ts";
-import { fetchAvailableModels, loadCodeAssist, resolveBaseUrl, type AvailableModel } from "./cloudcode.ts";
+import { fetchAvailableModels, loadCodeAssist, resolveBaseUrl, PROJECT_ID_RE, type AvailableModel } from "./cloudcode.ts";
 import {
 	buildAuthorizeUrl, exchangeAuthorizationCode, parseAuthorizationInput, refreshCredentials, requireClientSecret,
 	type AgyCredentials,
@@ -97,7 +97,11 @@ export function createAgyProvider(deps: Dependencies = {}): ProviderConfig {
 		refreshModels: async (context) => {
 			if (!context.allowNetwork) return [placeholder];
 			const credential = context.credential as { access?: unknown; projectId?: unknown } | undefined;
-			if (!credential || !validSecret(credential.access) || typeof credential.projectId !== "string") return [placeholder];
+			// projectId is validated with the same rule the stream applies, so a
+			// malformed stored value is refused here instead of being sent to
+			// Google in a request that cannot succeed.
+			if (!credential || !validSecret(credential.access) ||
+				typeof credential.projectId !== "string" || !PROJECT_ID_RE.test(credential.projectId)) return [placeholder];
 			const { models, defaultModelId } = await fetchAvailableModels(credential.access, {
 				baseUrl: base, projectId: credential.projectId, fetchImpl: deps.fetchImpl, signal: context.signal,
 			});

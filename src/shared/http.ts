@@ -12,19 +12,34 @@ async function readLimited(response: Response, signal: AbortSignal): Promise<str
 	if (!reader) return "";
 	const chunks: Uint8Array[] = [];
 	let size = 0;
+	// A peer can send headers and then hold the connection open forever, and
+	// `reader.read()` never settles for a stream that is open but idle. Checking
+	// the signal only between reads would therefore not bound this loop, so the
+	// read is raced against the signal: the documented request timeout covers
+	// body reads, not just the response head.
+	const read = () => reader.read();
+	// Held so it can be detached on the success path, where nothing aborts.
+	let onAbort: (() => void) | undefined;
 	try {
 		while (true) {
-			signal.throwIfAborted();
-			const { done, value } = await reader.read();
-			if (done) break;
-			size += value.byteLength;
+			const abortRace = new Promise<never>((_, reject) => {
+				const listener = () => reject(signal.reason ?? new Error("aborted"));
+				onAbort = listener;
+				if (signal.aborted) listener();
+				else signal.addEventListener("abort", listener, { once: true });
+			});
+			const settled = await Promise.race([read(), abortRace]);
+			if (onAbort) signal.removeEventListener("abort", onAbort);
+			if (settled.done) break;
+			size += settled.value.byteLength;
 			if (size > RESPONSE_LIMIT_BYTES) throw new Error("Provider response too large.");
-			chunks.push(value);
+			chunks.push(settled.value);
 		}
 	} catch {
 		await reader.cancel().catch(() => {});
 		throw new Error("Invalid or oversized provider response.");
 	} finally {
+		if (onAbort) signal.removeEventListener("abort", onAbort);
 		reader.releaseLock();
 	}
 	signal.throwIfAborted();
