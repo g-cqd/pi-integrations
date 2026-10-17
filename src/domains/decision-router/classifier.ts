@@ -46,11 +46,13 @@ export interface ModelLookup {
 const HARD_SIGNALS = /\b(lock[- ]?free|concurrency|race condition|deadlock|aba\b|miri|register allocat|miscompil|formal verif|linearizab|proof|tla\+|zero[- ]?knowledge|cryptograph|memory corruption|use[- ]after[- ]free|kernel panic|distributed consensus|raft|paxos|compiler|security audit|threat model|bisect|root[- ]?cause|multi[- ]module|architecture)\b/i;
 const TRIVIAL_SIGNALS = /\b(typo|rename|formatting|indent|comment|readme|changelog|version bump|what is|hello|ping|thank|one[- ]line|spelling)\b/i;
 const CODE_SIGNALS = /\b(implement|add|flag|endpoint|test|refactor|function|class|module|parse|cli|bug|handler|schema)\b/i;
+const NON_LOCAL_LOOKUP_SIGNALS = /\b(find|search|look\s*up|latest|current|today|todaz|weather|forecast|price|pricing|subscription|docs|documentation|investigate|compare)\b/i;
 
 /** Deterministic fallback when no local or remote System One classifier is reachable. */
 export function heuristicClassifyPrompt(prompt: string): PromptClassification {
 	const text = prompt.trim();
 	const length = text.length;
+	const needsLookupOrLiveInfo = NON_LOCAL_LOOKUP_SIGNALS.test(text);
 
 	if (HARD_SIGNALS.test(text) || length > 3500) {
 		return {
@@ -66,7 +68,7 @@ export function heuristicClassifyPrompt(prompt: string): PromptClassification {
 			tier: "lowest",
 			tierConfidence: 0.82,
 			taskProfile: "quick_edit",
-			localEligibleProbability: 0.88,
+			localEligibleProbability: needsLookupOrLiveInfo ? 0.15 : 0.88,
 			source: "heuristic",
 		};
 	}
@@ -75,7 +77,7 @@ export function heuristicClassifyPrompt(prompt: string): PromptClassification {
 			tier: "lowest",
 			tierConfidence: 0.65,
 			taskProfile: "quick_edit",
-			localEligibleProbability: 0.75,
+			localEligibleProbability: needsLookupOrLiveInfo ? 0.15 : 0.75,
 			source: "heuristic",
 		};
 	}

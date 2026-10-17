@@ -457,3 +457,106 @@ test("Spettro Velo 3.1 Flash is promoted in medium tier as a free Sonnet-level c
 	assert.equal(pick.candidate.freeModel, true);
 	assert.ok(pick.estimatedAccuracy >= 0.9);
 });
+
+test("Apple Foundation Models suppresses unrequested write tool calls on questions and stops after tool continuation", async () => {
+	const piTools = [
+		{
+			name: "read",
+			description: "Read file contents",
+			parameters: {
+				type: "object",
+				properties: { path: { type: "string" }, offset: { type: ["number", "null"] }, limit: { type: ["number", "null"] } },
+				required: ["path", "offset", "limit"],
+			},
+		},
+		{
+			name: "write",
+			description: "Write content to a file",
+			parameters: {
+				type: "object",
+				properties: { path: { type: "string" }, content: { type: "string" } },
+				required: ["path", "content"],
+			},
+		},
+	];
+
+	// 1. Plain questions ("what is the weather todaz", "what is the height of the eiffel tower",
+	//    "could you find the latest pricing for claude subscription") must NOT expose `write` or `read`.
+	for (const question of [
+		"what is the weather todaz",
+		"what is the height of the eiffel tower",
+		"could you find the latest pricing for claude subscription",
+	]) {
+		const ctx = normalizeContext({
+			systemPrompt: "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n<tools>\n- write: Create or overwrite files\n</tools>",
+			tools: piTools as never,
+			messages: [{ role: "user", content: question, timestamp: 0 }],
+		});
+		const built = buildFoundationPrompt(ctx);
+		assert.equal(built.tools.length, 2, "declared tools remain preserved on built.tools");
+		assert.equal(built.activeTools.length, 0, `plain question "${question}" must not activate file/shell tools`);
+		assert.ok(!built.instructions.includes("<tools>"), "Pi <tools> XML block must be stripped from on-device instructions");
+	}
+
+	// 2. Even if a faulty runner emits an unrequested `write` tool_call with content,
+	//    streamSimple converts it into a direct text reply (stopReason: "stop") instead of writing /tmp files or looping.
+	const model = {
+		id: MODEL_GENERAL_ID,
+		name: "Apple FM",
+		api: APPLE_API_ID,
+		provider: APPLE_PROVIDER_ID,
+		baseUrl: "https://apple-foundation.local",
+	} as never;
+
+	const faultyRunner: BridgeRunner = async function* () {
+		yield {
+			type: "tool_call",
+			toolName: "write",
+			toolArgumentsJson: JSON.stringify({ path: "/tmp/eiffel_tower.txt", content: "324 meters" }),
+		};
+		yield { type: "done" };
+	};
+	const streamSimple = createAppleFoundationStreamSimple({ runner: faultyRunner, now: () => 1700000000000 });
+	const questionCtx = normalizeContext({
+		systemPrompt: "Answer questions.",
+		tools: piTools as never,
+		messages: [{ role: "user", content: "what is the height of the eiffel tower", timestamp: 0 }],
+	});
+	const s = streamSimple(model, questionCtx);
+	for await (const _ of s as unknown as AsyncIterable<unknown>) { /* consume */ }
+	const res = await (s as unknown as { finalResultPromise: Promise<{ stopReason: string; content: Array<{ type: string; text?: string }> }> }).finalResultPromise;
+	assert.equal(res.stopReason, "stop");
+	assert.equal(res.content.length, 1);
+	assert.equal(res.content[0]?.type, "text");
+	assert.equal(res.content[0]?.text, "324 meters");
+
+	// 3. On a legitimate tool continuation turn (after a toolResult is present in the current user turn),
+	//    activeTools is empty so the bridge cannot repeat the tool call in a loop, and the prompt
+	//    includes both the executed tool action and tool output so the model does not contradict itself.
+	const continuationCtx = normalizeContext({
+		systemPrompt: "Use tools.",
+		tools: piTools as never,
+		messages: [
+			{ role: "user", content: "Read README.md lines 1 to 10", timestamp: 0 },
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "README.md", offset: 1, limit: 10 } }],
+				stopReason: "toolUse",
+				timestamp: 1,
+			} as never,
+			{
+				role: "toolResult",
+				toolCallId: "call_1",
+				toolName: "read",
+				content: [{ type: "text", text: "# pi-integrations" }],
+				isError: false,
+				timestamp: 2,
+			} as never,
+		],
+	});
+	const contBuilt = buildFoundationPrompt(continuationCtx);
+	assert.equal(contBuilt.activeTools.length, 0, "continuation turn after toolResult must disable tools to prevent repetition loops");
+	assert.ok(contBuilt.prompt.includes("Tool action executed: read("), "continuation prompt must include executed tool action");
+	assert.ok(contBuilt.prompt.includes("Tool output (read): # pi-integrations"), "continuation prompt must include tool output");
+});
+

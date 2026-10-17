@@ -25,7 +25,7 @@
  *     any declared tool with structured JSON arguments or reply directly.
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir, release } from "node:os";
 import { join } from "node:path";
 import {
@@ -129,14 +129,14 @@ import FoundationModels
 @available(macOS 26.0, *)
 @Generable(description: "Assistant response or a single tool invocation")
 struct AssistantTurnDecision {
-    @Guide(description: "Set to 'reply' to answer the user directly, or 'tool' to invoke one of the available tools")
+    @Guide(description: "Set to 'reply' to answer the user directly in plain text, or 'tool' ONLY when invoking one of the listed tools is required to read/modify files or run commands", .anyOf(["reply", "tool"]))
     var action: String
-    @Guide(description: "When action is 'tool', the exact tool name from the available tools list; otherwise empty string")
-    var toolName: String
-    @Guide(description: "When action is 'tool', a valid JSON object string matching the tool's parameters JSON Schema; otherwise empty string")
-    var toolArgumentsJson: String
-    @Guide(description: "When action is 'reply', the assistant response text; otherwise empty string")
+    @Guide(description: "When action is 'reply', the complete response text to the user; when action is 'tool', empty string")
     var reply: String
+    @Guide(description: "When action is 'tool', the exact tool name from the available tools list; when action is 'reply', empty string")
+    var toolName: String
+    @Guide(description: "When action is 'tool', a valid JSON object string matching the tool's parameters JSON Schema; when action is 'reply', empty string")
+    var toolArgumentsJson: String
 }
 #endif
 
@@ -207,6 +207,7 @@ struct Main {
             }
             do {
                 if let tools = req.tools, !tools.isEmpty, req.useCase != "contentTagging" {
+                    let allowedNames = Set(tools.map { $0.name })
                     let toolList = tools.map { tool in
                         var entry = "- \\(tool.name): \\(tool.description ?? "")"
                         if let opts = tool.options, !opts.isEmpty {
@@ -223,18 +224,20 @@ struct Main {
                     }.joined(separator: "\\n")
                     let session = LanguageModelSession(
                         model: model,
-                        instructions: instructions + "\\n\\nAvailable tools (when action is 'tool', toolArgumentsJson MUST use the exact parameter key names listed under the chosen tool):\\n" + toolList
+                        instructions: instructions + "\\n\\nAvailable tools (set action='reply' for questions or explanations; set action='tool' ONLY when invoking a listed tool is strictly required, and use the exact parameter key names listed under the chosen tool):\\n" + toolList
                     )
                     let res = try await session.respond(to: prompt, generating: AssistantTurnDecision.self, options: options)
                     let d = res.content
-                    if d.action == "tool" && !d.toolName.isEmpty {
+                    if d.action == "tool" && allowedNames.contains(d.toolName) {
                         emit([
                             "type": "tool_call",
                             "toolName": d.toolName,
                             "toolArgumentsJson": d.toolArgumentsJson.isEmpty ? "{}" : d.toolArgumentsJson,
                         ])
-                    } else {
+                    } else if !d.reply.isEmpty {
                         emit(["type": "delta", "text": d.reply])
+                    } else if !d.toolArgumentsJson.isEmpty {
+                        emit(["type": "delta", "text": d.toolArgumentsJson])
                     }
                     emit(["type": "done"])
                 } else {
@@ -290,7 +293,13 @@ export async function ensureSwiftBridgeBinary(
 	const sourcePath = join(cacheDir, "bridge.swift");
 	const binaryPath = join(cacheDir, BINARY_PATH_NAME);
 	try {
-		if (statSync(binaryPath).isFile()) return binaryPath;
+		if (
+			statSync(binaryPath).isFile() &&
+			existsSync(sourcePath) &&
+			readFileSync(sourcePath, "utf8") === SWIFT_BRIDGE_SOURCE
+		) {
+			return binaryPath;
+		}
 	} catch { /* compile below */ }
 	mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
 	writeFileSync(sourcePath, SWIFT_BRIDGE_SOURCE, { mode: 0o600 });
@@ -415,6 +424,121 @@ export function canonicalizeToolArguments(
 	return out;
 }
 
+const DEFAULT_ON_DEVICE_INSTRUCTIONS =
+	"You are a concise, accurate on-device coding and reasoning assistant. " +
+	"Answer general, factual, and conceptual questions directly in plain text and then stop. " +
+	"Never write answers to temporary files (such as /tmp/...) unless the user explicitly asks to create or write a file. " +
+	"If a question requires live internet data (such as current weather or live web pricing) not present in the conversation, state clearly that real-time information is unavailable offline.";
+
+/**
+ * Strip Pi harness XML sections (`<tools>`, `<rules>`, `<docs>`, `<skills>`, `<mcp_servers>`)
+ * and tool-forcing boilerplate so the 3B on-device model is not primed to invoke `write`
+ * on conversational questions.
+ */
+export function sanitizeFoundationInstructions(rawSystemText: string): string {
+	const stripped = rawSystemText
+		.replace(/<(?:tools|rules|docs|skills|mcp_servers)>[\s\S]*?<\/(?:tools|rules|docs|skills|mcp_servers)>/gi, "")
+		.replace(/You are an expert coding assistant operating inside pi, a coding agent harness\.\s*You help users by reading files, executing commands, editing code, and writing new files\./gi, "")
+		.trim();
+	if (!stripped) return DEFAULT_ON_DEVICE_INSTRUCTIONS;
+	const combined = `${stripped}\n\n${DEFAULT_ON_DEVICE_INSTRUCTIONS}`;
+	return combined.slice(0, 1800);
+}
+
+const BUILTIN_AGENT_TOOLS = new Set(["read", "bash", "edit", "write", "codemode"]);
+const WRITE_INTENT_RE = /\b(write|create|save|overwrite|output\s+to|new\s+file|make\s+a\s+file)\b/i;
+const EDIT_INTENT_RE = /\b(edit|modify|update|replace|patch|refactor|rename|fix\s+in|change\s+in)\b/i;
+const EXEC_INTENT_RE = /\b(run|execute|bash|shell|terminal|command|script|git|ls|grep|rg|find\s+files|build|compile|test|codemode)\b/i;
+const READ_INTENT_RE = /\b(read|inspect|open|view|cat|show\s+file|check\s+file|file\s+contents|lines?\s+\d+)\b/i;
+const FILE_PATH_TOKEN_RE = /(?:^|[\s"'`(])(?:\.{1,2}\/|[~/][\w.-]+\/|[\w.-]+\/[\w./-]+|[\w.-]+\.(?:md|ts|tsx|js|mjs|cjs|json|swift|py|sh|txt|yaml|yml|toml|html|css|rs|go|c|h|cpp|java|rb|lock))\b/i;
+
+type RawTranscriptMessage = {
+	role?: string;
+	content?: unknown;
+	toolName?: string;
+};
+
+function findLastUserMessageIndex(messages: readonly RawTranscriptMessage[]): number {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i]?.role === "user") return i;
+	}
+	return -1;
+}
+
+function hasToolActivityInCurrentTurn(messages: readonly RawTranscriptMessage[], lastUserIdx: number): boolean {
+	if (lastUserIdx < 0) return false;
+	for (let i = lastUserIdx + 1; i < messages.length; i++) {
+		const msg = messages[i];
+		if (!msg) continue;
+		if (msg.role === "toolResult") return true;
+		if (msg.role === "assistant" && Array.isArray(msg.content)) {
+			for (const b of msg.content) {
+				if (b && typeof b === "object" && (b as { type?: string }).type === "toolCall") return true;
+			}
+		}
+	}
+	return false;
+}
+
+/**
+ * Determine which declared tools should be active for the current turn on the
+ * 3B on-device model:
+ *   1. Once a tool has already executed in the current user turn, disable tools
+ *      on the continuation step so the model synthesizes a final text answer and
+ *      stops instead of repeating the same tool call in a loop.
+ *   2. For built-in coding agent tools (`write`, `edit`, `bash`, `codemode`, `read`),
+ *      only expose tools that match the user's request intent so plain questions
+ *      never trigger unrequested `/tmp/*.txt` file writes.
+ */
+export function selectActiveToolsForTurn(
+	tools: readonly BridgeToolSpec[],
+	messages: readonly RawTranscriptMessage[],
+): BridgeToolSpec[] {
+	if (tools.length === 0) return [];
+	const lastUserIdx = findLastUserMessageIndex(messages);
+	if (lastUserIdx < 0) return [];
+	if (hasToolActivityInCurrentTurn(messages, lastUserIdx)) return [];
+
+	const userText = extractPlainText(messages[lastUserIdx]?.content).trim();
+	if (!userText) return [];
+
+	const hasFilePath = FILE_PATH_TOKEN_RE.test(userText);
+	return tools.filter((tool) => {
+		if (!BUILTIN_AGENT_TOOLS.has(tool.name)) return true;
+		switch (tool.name) {
+			case "write":
+				return WRITE_INTENT_RE.test(userText);
+			case "edit":
+				return EDIT_INTENT_RE.test(userText);
+			case "bash":
+			case "codemode":
+				return EXEC_INTENT_RE.test(userText);
+			case "read":
+				return READ_INTENT_RE.test(userText) || hasFilePath;
+			default:
+				return true;
+		}
+	});
+}
+
+export function parseToolArgumentsJson(raw: string | undefined): Record<string, unknown> {
+	if (!raw || !raw.trim()) return {};
+	const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+	for (const candidate of [
+		trimmed,
+		// Repair stray trailing quote after numeric/boolean/null literals (e.g. `"limit": 20"`)
+		trimmed.replace(/:\s*(-?\d+(?:\.\d+)?|true|false|null)"(\s*[,}])/g, ": $1$2"),
+	]) {
+		try {
+			const parsed = JSON.parse(candidate);
+			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+				return parsed as Record<string, unknown>;
+			}
+		} catch { /* try next */ }
+	}
+	return {};
+}
+
 /**
  * Render a Pi transcript and its active tools (including every parameter option
  * and required field from the tool's JSON Schema) into a compact request within
@@ -424,11 +548,12 @@ export function buildFoundationPrompt(context: TranscriptContext): {
 	instructions: string;
 	prompt: string;
 	tools: BridgeToolSpec[];
+	activeTools: BridgeToolSpec[];
 } {
 	const normalized = collapseSystemMessages(context);
 	const initialSystem = getInitialSystemMessage(normalized.messages as never);
 	const systemText = initialSystem ? getSystemMessageText(initialSystem as never) : "";
-	const instructions = (systemText || "You are a concise, accurate on-device coding and reasoning assistant.").slice(0, 1800);
+	const instructions = sanitizeFoundationInstructions(systemText);
 
 	const rawTools = getCurrentTools(normalized.messages as never) as Array<{
 		name?: unknown;
@@ -454,34 +579,84 @@ export function buildFoundationPrompt(context: TranscriptContext): {
 		});
 	}
 
+	const messages = normalized.messages as RawTranscriptMessage[];
+	const activeTools = selectActiveToolsForTurn(tools, messages);
+	const lastUserIdx = findLastUserMessageIndex(messages);
+	const toolContinuation = hasToolActivityInCurrentTurn(messages, lastUserIdx);
+
 	const turns: string[] = [];
-	for (const msg of normalized.messages as Array<{ role?: string; content?: unknown; toolName?: string }>) {
-		if (!msg || msg.role === "system") continue;
-		const text = extractMessageText(msg.content);
+	const priorEnd = lastUserIdx >= 0 ? lastUserIdx : messages.length;
+	for (let i = 0; i < priorEnd; i++) {
+		const msg = messages[i];
+		if (!msg || msg.role === "system" || msg.role === "toolResult") continue;
+		// Omit raw tool-call traces from prior completed turns so they never act as
+		// few-shot examples that encourage repeating tool calls on later questions.
+		const text = extractPlainText(msg.content).trim();
 		if (!text) continue;
 		if (msg.role === "user") turns.push(`User: ${text}`);
 		else if (msg.role === "assistant") turns.push(`Assistant: ${text}`);
-		else if (msg.role === "toolResult") turns.push(`Tool (${msg.toolName ?? "result"}): ${text}`);
 	}
+
+	if (lastUserIdx >= 0) {
+		const userText = extractPlainText(messages[lastUserIdx]?.content).trim();
+		if (toolContinuation) {
+			const stepLines: string[] = [`User request: ${userText}`];
+			for (let i = lastUserIdx + 1; i < messages.length; i++) {
+				const msg = messages[i];
+				if (!msg) continue;
+				if (msg.role === "assistant") {
+					const calls = extractToolCalls(msg.content);
+					for (const call of calls) {
+						stepLines.push(`Tool action executed: ${call.name}(${JSON.stringify(call.arguments ?? {})})`);
+					}
+					const text = extractPlainText(msg.content).trim();
+					if (text) stepLines.push(`Assistant note: ${text}`);
+				} else if (msg.role === "toolResult") {
+					const resText = extractPlainText(msg.content).trim();
+					stepLines.push(`Tool output (${msg.toolName ?? "result"}): ${resText}`);
+				}
+			}
+			stepLines.push(
+				"Using the tool action and tool output above, provide the final response to the user request directly and concisely. " +
+				"Do not call any more tools, and do not claim information is missing if it already appears in the tool action or tool output above.",
+			);
+			turns.push(stepLines.join("\n\n"));
+		} else if (userText) {
+			turns.push(`User: ${userText}`);
+		}
+	}
+
 	const joined = turns.join("\n\n");
 	// Keep the most recent ~6,000 chars (~1,500 tokens) so tool schemas + response tokens fit in 4,096.
 	const prompt = joined.length <= 6000 ? joined : joined.slice(-6000);
-	return { instructions, prompt: prompt || "Hello", tools };
+	return { instructions, prompt: prompt || "Hello", tools, activeTools };
 }
 
-function extractMessageText(content: unknown): string {
+function extractPlainText(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	const parts: string[] = [];
 	for (const block of content) {
 		if (!block || typeof block !== "object") continue;
-		const b = block as { type?: string; text?: string; name?: string; arguments?: unknown };
-		if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
-		else if (b.type === "toolCall" && typeof b.name === "string") {
-			parts.push(`[called ${b.name}(${JSON.stringify(b.arguments ?? {})})]`);
+		const b = block as { type?: string; text?: string };
+		if (b.type === "text" && typeof b.text === "string" && b.text.trim()) {
+			parts.push(b.text);
 		}
 	}
 	return parts.join("\n");
+}
+
+function extractToolCalls(content: unknown): Array<{ name: string; arguments: unknown }> {
+	if (!Array.isArray(content)) return [];
+	const out: Array<{ name: string; arguments: unknown }> = [];
+	for (const block of content) {
+		if (!block || typeof block !== "object") continue;
+		const b = block as { type?: string; name?: unknown; arguments?: unknown };
+		if (b.type === "toolCall" && typeof b.name === "string") {
+			out.push({ name: b.name, arguments: b.arguments ?? {} });
+		}
+	}
+	return out;
 }
 
 export interface AppleFoundationDependencies {
@@ -517,7 +692,7 @@ export function createAppleFoundationStreamSimple(deps: AppleFoundationDependenc
 		(async () => {
 			try {
 				options?.signal?.throwIfAborted();
-				const { instructions, prompt, tools } = buildFoundationPrompt(context);
+				const { instructions, prompt, tools, activeTools } = buildFoundationPrompt(context);
 				const useCase = model.id === MODEL_TAGGING_ID ? "contentTagging" : "general";
 				const optRecord = options as { temperature?: unknown; maxTokens?: unknown } | undefined;
 				const req: BridgeRequest = {
@@ -527,13 +702,33 @@ export function createAppleFoundationStreamSimple(deps: AppleFoundationDependenc
 					prompt,
 					...(typeof optRecord?.temperature === "number" ? { temperature: optRecord.temperature } : {}),
 					...(typeof optRecord?.maxTokens === "number" ? { maxTokens: optRecord.maxTokens } : {}),
-					...(tools.length > 0 ? { tools } : {}),
+					...(activeTools.length > 0 ? { tools: activeTools } : {}),
 				};
 				await options?.onPayload?.(req, model);
+
+				const activeToolNames = new Set(activeTools.map((t) => t.name));
+				const seenToolSignatures = new Set<string>();
 
 				push({ type: "start", partial: output });
 				let textBlock: { type: "text"; text: string } | null = null;
 				let outputChars = 0;
+
+				const closeTextBlock = () => {
+					if (!textBlock) return;
+					push({ type: "text_end", contentIndex: output.content.length - 1, content: textBlock.text, partial: output });
+					textBlock = null;
+				};
+				const appendDelta = (deltaText: string) => {
+					if (!deltaText) return;
+					if (!textBlock) {
+						textBlock = { type: "text", text: "" };
+						output.content.push(textBlock);
+						push({ type: "text_start", contentIndex: output.content.length - 1, partial: output });
+					}
+					textBlock.text += deltaText;
+					outputChars += deltaText.length;
+					push({ type: "text_delta", contentIndex: output.content.length - 1, delta: deltaText, partial: output });
+				};
 
 				for await (const ev of runner(req, options?.signal)) {
 					if (ev.type === "availability" && ev.available === false) {
@@ -543,27 +738,30 @@ export function createAppleFoundationStreamSimple(deps: AppleFoundationDependenc
 						throw new Error(`Apple Foundation Models error: ${ev.error ?? "unknown error"}`);
 					}
 					if (ev.type === "delta" && typeof ev.text === "string" && ev.text.length > 0) {
-						if (!textBlock) {
-							textBlock = { type: "text", text: "" };
-							output.content.push(textBlock);
-							push({ type: "text_start", contentIndex: output.content.length - 1, partial: output });
-						}
-						textBlock.text += ev.text;
-						outputChars += ev.text.length;
-						push({ type: "text_delta", contentIndex: output.content.length - 1, delta: ev.text, partial: output });
+						appendDelta(ev.text);
 					}
 					if (ev.type === "tool_call" && typeof ev.toolName === "string") {
-						if (textBlock) {
-							push({ type: "text_end", contentIndex: output.content.length - 1, content: textBlock.text, partial: output });
-							textBlock = null;
-						}
-						let args: Record<string, unknown> = {};
-						try {
-							const parsed = JSON.parse(ev.toolArgumentsJson ?? "{}");
-							if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) args = parsed as Record<string, unknown>;
-						} catch { /* fallback to empty args */ }
 						const declaredTool = tools.find((t) => t.name === ev.toolName);
-						args = canonicalizeToolArguments(args, declaredTool);
+						const args = canonicalizeToolArguments(parseToolArgumentsJson(ev.toolArgumentsJson), declaredTool);
+						const sig = `${ev.toolName}:${JSON.stringify(args)}`;
+
+						// Guard against unrequested or duplicate tool calls: if the tool is not
+						// active for this turn or has already been emitted, convert any embedded
+						// text payload into a direct reply instead of looping toolUse.
+						if (!activeToolNames.has(ev.toolName) || seenToolSignatures.has(sig)) {
+							const fallbackText = typeof args.content === "string" && args.content.trim()
+								? args.content.trim()
+								: typeof args.text === "string" && args.text.trim()
+									? args.text.trim()
+									: "";
+							if (fallbackText && outputChars === 0) {
+								appendDelta(fallbackText);
+							}
+							continue;
+						}
+						seenToolSignatures.add(sig);
+
+						closeTextBlock();
 						const id = `apple_fm_call_${++toolCallSeq}`;
 						const block = { type: "toolCall", id, name: ev.toolName, arguments: args };
 						output.content.push(block);
@@ -575,9 +773,7 @@ export function createAppleFoundationStreamSimple(deps: AppleFoundationDependenc
 					}
 				}
 
-				if (textBlock) {
-					push({ type: "text_end", contentIndex: output.content.length - 1, content: textBlock.text, partial: output });
-				}
+				closeTextBlock();
 				const estIn = Math.max(1, Math.ceil((instructions.length + prompt.length) / 4));
 				const estOut = Math.ceil(outputChars / 4);
 				output.usage = {

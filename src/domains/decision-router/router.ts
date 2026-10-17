@@ -82,7 +82,7 @@ function estimateConversationTokens(messages: readonly Message[]): number {
 
 function isQuotaOrRateLimitFailure(errorMessage: string | undefined): boolean {
 	if (!errorMessage) return false;
-	return /usage limit|rate.?limit|quota|429|out of extra usage|subscription sharing|not supported when using codex/i.test(errorMessage);
+	return /usage limit|rate.?limit|quota|429|402|insufficient balance|credit balance|payment required|out of extra usage|subscription sharing|not supported when using codex/i.test(errorMessage);
 }
 
 function allCandidateProviders(config: DecisionRouterConfig): string[] {
