@@ -173,3 +173,50 @@ test("a malformed catalog envelope fails explicitly, and HTTP failures are descr
 	}
 	await assert.rejects(fetchAvailableModels(TOKEN, { baseUrl: BASE, projectId: "p", fetchImpl: sequenceFetch([json({ error: { status: "UNAUTHENTICATED" } }, 401)]).fetchImpl }), /HTTP 401[\s\S]*UNAUTHENTICATED/);
 });
+
+// ---------------------------------------------------------------------------
+// Tiered models
+//
+// The server names tiered models in tieredModelIds and omits them from the
+// Recommended groups. They are real, usable ids: the BASE id answers 200 to
+// this package's envelope, while the CLI's expanded display ids
+// (gemini-3.8-flash-medium) answer 404 for any client but the registered CLI
+// (bisected live 2026-10-17). The domain therefore offers the base id.
+// ---------------------------------------------------------------------------
+
+test("tiered models are appended after the recommended group", async () => {
+	const f = sequenceFetch([json({
+		models: {
+			"claude-x-low": { displayName: "Claude X", supportsImages: false, supportsThinking: true, recommended: true },
+			"gemini-flash-tiered": { displayName: "Gemini Flash", supportsImages: true, supportsThinking: true, recommended: true, maxTokens: 1048576, maxOutputTokens: 65536 },
+			"gemini-old": { displayName: "Old", supportsImages: false, supportsThinking: false, recommended: true },
+		},
+		defaultAgentModelId: "claude-x-low",
+		agentModelSorts: [{ displayName: "Recommended", groups: [{ modelIds: ["claude-x-low", "gemini-old"] }] }],
+		tieredModelIds: { flash: ["gemini-flash-tiered"], pro: ["gemini-flash-tiered"] },
+	})]);
+	const { models } = await fetchAvailableModels(TOKEN, { baseUrl: BASE, projectId: "p", fetchImpl: f.fetchImpl });
+	assert.deepEqual(models.map((m) => m.id), ["claude-x-low", "gemini-old", "gemini-flash-tiered"],
+		"recommended order first, then the tiered base id, deduplicated");
+	const tiered = models.find((m) => m.id === "gemini-flash-tiered");
+	assert.equal(tiered?.maxTokens, 1048576, "the tiered entry's own limits are used");
+	assert.equal(tiered?.supportsImages, true);
+});
+
+test("tiered ids not present in the models map are not invented", async () => {
+	const f = sequenceFetch([json({
+		models: { "m": { displayName: "M", supportsImages: false, supportsThinking: false } },
+		tieredModelIds: { flash: ["ghost-tiered"] },
+	})]);
+	const { models } = await fetchAvailableModels(TOKEN, { baseUrl: BASE, projectId: "p", fetchImpl: f.fetchImpl });
+	assert.deepEqual(models.map((m) => m.id), ["m"], "a tiered id with no map entry is skipped, not guessed");
+});
+
+test("a malformed tieredModelIds shape is ignored", async () => {
+	const f = sequenceFetch([json({
+		models: { "m": { displayName: "M", supportsImages: false, supportsThinking: false } },
+		tieredModelIds: "not-a-map",
+	})]);
+	const { models } = await fetchAvailableModels(TOKEN, { baseUrl: BASE, projectId: "p", fetchImpl: f.fetchImpl });
+	assert.deepEqual(models.map((m) => m.id), ["m"]);
+});

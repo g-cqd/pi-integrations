@@ -161,17 +161,19 @@ client secret are redacted from provider messages.
 | Endpoint paths and the daily host | the CLI's own request log of one real turn |
 | Backend accepts `parametersJsonSchema`, thought parts, function-call ids | same descriptors |
 | **Backend gates the account's project on the User-Agent naming the Antigravity client** | live bisection (2026-10-17): same token, same account — `antigravity-1.4.0` in the UA receives `aicode-consumers`; `pi-integrations/…` alone receives `ineligibleTiers: [UNSUPPORTED_CLIENT]`. The metadata fields (`ideName`, versions) are not checked. |
+| **`streamGenerateContent` accepts this package's envelope verbatim** | live turn (2026-10-17): `claude-opus-5-5-low` and the tiered base id both answered 200 and produced output through this domain's own streamer. |
+| **Tiered models are offered under their BASE id, not the CLI's expanded display ids** | bisected live: `gemini-3.8-flash-tiered` → 200 with this package's plain envelope; `gemini-3.8-flash-medium` → 404 even with the CLI's own `labels` and `sessionId` reproduced. The expanded ids work only for the registered CLI client. `gemini-4-argon` does not appear in the account's catalog response at all (it lives in the CLI's embedded catalog or behind its feature flags) and is therefore not offered. |
+| **Catalog refresh must publish, not return** | Pi persists only what `refreshModels` passes to `context.publish({ persist })`; the return value alone updates memory for the session. Observed in Pi's composer and runtime; fixed in all three catalog domains (agy, codex, spettro). |
 
 Because of that finding, `USER_AGENT` leads with `antigravity-<version>` (the value
 the gate matches) and keeps this package's own identity after it. This is a
 first-party identity claim required for the account's own project to be returned —
 the same category of decision as the Claude gate, documented here rather than hidden.
 
-**Not verified**, and the first things to check on a first live sign-in: that Google
-accepts this client's token exchange and refresh with the secret; the shape of real
-stream chunks end to end (the UA gate was verified for `loadCodeAssist`, not for
-`streamGenerateContent`); refresh at real expiry; quota behavior; and the daily
-versus production host. The tests exercise all of this against synthetic data and
+**Not verified:** that Google accepts this client's token exchange and refresh with
+the secret; refresh at real expiry; quota behavior; and the daily versus production
+host. (The stream itself IS verified live now, for one turn on two model ids:
+a recommended model and a tiered base id.) The tests exercise all of this against synthetic data and
 Pi's real conversion helpers only.
 
 ## Terms

@@ -84,7 +84,9 @@ test("catalog refresh never wipes the discoverable catalog", async () => {
 
 test("catalog filters malformed/duplicate entries and keeps classic system-role compatibility", async () => {
 	const f = fixture([{ data: [null, {}, { id: "one", vision: true, reasoning: true, context_window: 32000 }, { id: "one" }, { id: "two", context_window: -1, vision: "false" }] }]);
-	const result = await f.config.refreshModels!({ allowNetwork: true, credential: { access: "synthetic-catalog-key" }, signal: new AbortController().signal } as never);
+	// publish is Pi's persistence contract; the filter behavior under test does
+	// not depend on it, but refreshModels now calls it on success.
+	const result = await f.config.refreshModels!({ allowNetwork: true, credential: { access: "synthetic-catalog-key" }, signal: new AbortController().signal, publish: async () => true } as never);
 	assert.deepEqual(result.map(m => m.id), ["one", "two"]);
 	assert.deepEqual(result[0].input, ["text", "image"]);
 	assert.deepEqual(result[1].input, ["text"]);

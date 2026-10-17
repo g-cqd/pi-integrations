@@ -16,6 +16,8 @@ import {
 import { fetchCodexCatalog } from "./catalog.ts";
 import { mergeCatalog, staticModels } from "./models.ts";
 import { validSecret } from "../../shared/index.ts";
+import type { AnyModel } from "@earendil-works/pi-ai";
+import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
 export const PROVIDER_ID = "codex-subscription";
 export const DISPLAY_NAME = "Codex Subscription (experimental)";
@@ -131,7 +133,14 @@ export function createCodexProvider(deps: Dependencies): ProviderConfig {
 			// improvement, never a dependency. Any failure leaves the user with
 			// exactly the models they had before.
 			const fallback = staticModels();
-			if (!context.allowNetwork) return fallback;
+			// Restore first: a persisted catalog survives restarts, which is the
+			// point of persisting below.
+			if (!context.allowNetwork) {
+				const stored = (context as { stored?: { models?: unknown[] } }).stored;
+				const restored = stored?.models?.filter((m): m is ProviderModelConfig =>
+					typeof m === "object" && m !== null && Array.isArray((m as { input?: unknown }).input)) ?? [];
+				return restored.length > 0 ? restored : fallback;
+			}
 			const credential = context.credential as { access?: unknown } | undefined;
 			if (!credential || !validSecret(credential.access)) return fallback;
 			try {
@@ -140,7 +149,12 @@ export function createCodexProvider(deps: Dependencies): ProviderConfig {
 				});
 				// An empty catalog means "nothing to offer", which is worse than
 				// the static list, so it is treated as a failed refresh.
-				return remote.length > 0 ? mergeCatalog(remote, fallback) : fallback;
+				if (remote.length === 0) return fallback;
+				const listed = mergeCatalog(remote, fallback).map((m) => ({ ...m, provider: PROVIDER_ID })) as unknown as ProviderModelConfig[];
+				// Persist so the discovered catalog survives restarts; Pi writes
+				// only what we publish. (models-store.json, not credentials.)
+				await context.publish({ persist: { models: listed as unknown as AnyModel[], checkedAt: (deps.now ?? Date.now)() } });
+				return listed;
 			} catch {
 				// The endpoint is unverified, so a 404 must not surface as an error
 				// for a feature that is strictly optional.

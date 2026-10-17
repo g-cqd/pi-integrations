@@ -5,6 +5,7 @@
  */
 import type { OAuthLoginCallbacks } from "@earendil-works/pi-ai/compat";
 import type { ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { AnyModel } from "@earendil-works/pi-ai";
 import { generatePKCE, validSecret, type HttpOptions } from "../../shared/index.ts";
 import { fetchAvailableModels, loadCodeAssist, resolveBaseUrl, PROJECT_ID_RE, type AvailableModel } from "./cloudcode.ts";
 import {
@@ -95,7 +96,15 @@ export function createAgyProvider(deps: Dependencies = {}): ProviderConfig {
 			},
 		},
 		refreshModels: async (context) => {
-			if (!context.allowNetwork) return [placeholder];
+			// Pi calls this twice: once with allowNetwork false to restore from the
+			// store, then with network to fetch. Restoring from `stored` is what makes
+			// the catalog survive restarts (Pi persists only what we publish).
+			if (!context.allowNetwork) {
+				const stored = (context as { stored?: { models?: unknown[] } }).stored;
+				const restored = stored?.models?.filter((m): m is NonNullable<ProviderModelConfig> =>
+					typeof m === "object" && m !== null && (m as { id?: unknown }).id !== CATALOG_PLACEHOLDER) ?? [];
+				return restored.length > 0 ? restored : [placeholder];
+			}
 			const credential = context.credential as { access?: unknown; projectId?: unknown } | undefined;
 			// projectId is validated with the same rule the stream applies, so a
 			// malformed stored value is refused here instead of being sent to
@@ -107,7 +116,13 @@ export function createAgyProvider(deps: Dependencies = {}): ProviderConfig {
 			});
 			if (models.length === 0) return [placeholder];
 			const ordered = [...models].sort((a, b) => Number(b.id === defaultModelId) - Number(a.id === defaultModelId));
-			return ordered.map((model) => toModelConfig(model, base));
+			// provider is stamped here because the persisted entry bypasses the
+			// composer's in-memory stamping; restore filters on it.
+			const listed = ordered.map((model) => ({ ...toModelConfig(model, base), provider: PROVIDER_ID })) as unknown as ProviderModelConfig[];
+			// Persist so the catalog survives restarts; Pi writes only what we
+			// publish, and `update` is the composer's job (it applies our return).
+			await context.publish({ persist: { models: listed as unknown as AnyModel[], checkedAt: now() } });
+			return listed;
 		},
 		streamSimple: (model, context, options) => {
 			if (model.id === CATALOG_PLACEHOLDER) throw new Error("Antigravity catalog not loaded; sign in and refresh models.");

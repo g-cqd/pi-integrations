@@ -33,8 +33,10 @@ const providerWith = (fetchImpl: FetchImplementation) => createCodexProvider({
 	models: [], streamSimple: (() => undefined) as never, fetchImpl,
 });
 
-const refreshContext = (credential: unknown, allowNetwork = true) => ({
+const refreshContext = (credential: unknown, allowNetwork = true, over: Record<string, unknown> = {}) => ({
 	allowNetwork, credential, signal: new AbortController().signal,
+	publish: async () => true,
+	...over,
 }) as never;
 
 test("the endpoint matches the path observed in the CLI strings", () => {
@@ -199,7 +201,7 @@ test("an aborted refresh does not throw out of refreshModels", async () => {
 	const controller = new AbortController();
 	controller.abort();
 	const provider = providerWith((async () => json({ models: [entry()] })) as FetchImplementation);
-	const models = await provider.refreshModels?.({ allowNetwork: true, credential: { access: "token" }, signal: controller.signal } as never);
+	const models = await provider.refreshModels?.(refreshContext({ access: "token" }, true, { signal: controller.signal }));
 	assert.deepEqual(models?.map((m) => m.id), staticModels().map((m) => m.id), "an abort degrades to the fallback");
 });
 

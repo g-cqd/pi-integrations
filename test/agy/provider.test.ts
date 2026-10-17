@@ -182,6 +182,9 @@ test("the live catalog is mapped from the server's own fields, default first, no
 	const models = await f.config.refreshModels!(ctx(live));
 	assert.deepEqual(models.map((m) => m.id), ["m-high", "m-low"]);
 	assert.deepEqual(models[1], {
+		// provider is stamped because the persisted entry bypasses the composer's
+		// in-memory stamping; the restore path filters on it.
+		provider: "agy-subscription",
 		id: "m-low", name: "M (Low)", api: API_ID, baseUrl: DEFAULT_BASE_URL, input: ["text"], reasoning: true,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536,
 	});

@@ -15,6 +15,13 @@ import type { FetchImplementation } from "../../src/shared/http.ts";
 
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
 
+/** Pi's refreshModels context: publish persists to the store; stored restores. */
+const refreshContext = (credential: unknown, allowNetwork = true, over: Record<string, unknown> = {}) => ({
+	allowNetwork, credential, signal: new AbortController().signal,
+	publish: async () => true,
+	...over,
+}) as never;
+
 /** Minimal valid credentials for each domain. */
 const codexJwt = (payload: unknown) => {
 	const enc = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
@@ -93,9 +100,7 @@ test("refreshModels keeps the placeholder when the credential is unusable", asyn
 		const provider = createAgyProvider({ fetchImpl: (async () => {
 			throw new Error("network must not be reached for an unusable credential");
 		}) as FetchImplementation });
-		const models = await provider.refreshModels?.({
-			allowNetwork: true, credential, signal: new AbortController().signal,
-		} as never);
+		const models = await provider.refreshModels?.(refreshContext(credential));
 		assert.equal((models as Array<{ id: string }>)[0].id, CATALOG_PLACEHOLDER,
 			`credential ${JSON.stringify(credential)} must fall back to the placeholder`);
 	}
@@ -151,9 +156,7 @@ test("the server's default model is ordered first and the rest keep server order
 			},
 		}), { status: 200 })) as FetchImplementation,
 	});
-	const list = await provider.refreshModels!({
-		allowNetwork: true, credential: { access: "token", projectId: "proj" }, signal: new AbortController().signal,
-	} as never);
+	const list = await provider.refreshModels!(refreshContext({ access: "token", projectId: "proj" }));
 	const ids = (list as Array<{ id: string }>).map((m) => m.id);
 	assert.equal(ids[0], "bravo", "the default model leads");
 	assert.deepEqual(ids.slice(1).sort(), ["alpha", "charlie"], "the remaining models are all present");
@@ -171,7 +174,7 @@ test("a catalog with no default keeps the server's order", async () => {
 			},
 		}), { status: 200 })) as FetchImplementation,
 	});
-	const list = await provider.refreshModels!({ allowNetwork: true, credential: { access: "token", projectId: "proj" }, signal: new AbortController().signal } as never);
+	const list = await provider.refreshModels!(refreshContext({ access: "token", projectId: "proj" })) as Array<{ id: string }>;
 	assert.deepEqual((list as Array<{ id: string }>).map((m) => m.id), ["zulu", "alpha"],
 		"without a default, insertion order is preserved rather than sorted by name");
 });
@@ -184,6 +187,68 @@ test("a default id the catalog does not contain does not drop every model", asyn
 			models: { alpha: { displayName: "Alpha", supportsImages: false, supportsThinking: false, recommended: false, preview: false } },
 		}), { status: 200 })) as FetchImplementation,
 	});
-	const list = await provider.refreshModels!({ allowNetwork: true, credential: { access: "token", projectId: "proj" }, signal: new AbortController().signal } as never);
+	const list = await provider.refreshModels!(refreshContext({ access: "token", projectId: "proj" })) as Array<{ id: string }>;
 	assert.deepEqual((list as Array<{ id: string }>).map((m) => m.id), ["alpha"], "the real model is still offered");
+});
+
+// ---------------------------------------------------------------------------
+// Catalog persistence
+//
+// Pi persists only what refreshModels publishes via context.publish({persist}),
+// and hands the stored entry back as context.stored on the next restore pass.
+// Without the publish, the catalog evaporates on every restart -- the gap that
+// left the placeholder in place after a successful live sign-in.
+// ---------------------------------------------------------------------------
+
+test("a successful refresh publishes the catalog for persistence", async () => {
+	const published: Array<Record<string, unknown>> = [];
+	const provider = createAgyProvider({
+		fetchImpl: (async () => new Response(JSON.stringify({
+			models: { "claude-x-low": { displayName: "Claude X", supportsImages: false, supportsThinking: false, recommended: true } },
+			defaultAgentModelId: "claude-x-low",
+		}), { status: 200 })) as FetchImplementation,
+	});
+	const list = await provider.refreshModels!(refreshContext({ access: "token", projectId: "proj" }, true,
+		{ publish: async (p: Record<string, unknown>) => { published.push(p); return true; } })) as Array<{ id: string }>;
+	assert.equal(list.length, 1);
+	assert.equal(published.length, 1, "exactly one publication");
+	const persist = (published[0] as { persist?: { models?: Array<{ id: string; provider?: string }>; checkedAt?: number } }).persist;
+	assert.ok(persist, "the publication carries a persist entry");
+	assert.equal(persist?.models?.[0]?.id, "claude-x-low");
+	assert.equal(persist?.models?.[0]?.provider, "agy-subscription", "provider is stamped for the restore filter");
+	assert.ok(typeof persist?.checkedAt === "number");
+});
+
+test("the restore pass returns the stored catalog, not the placeholder", async () => {
+	let fetched = 0;
+	const provider = createAgyProvider({
+		fetchImpl: (async () => { fetched++; return new Response("{}", { status: 200 }); }) as FetchImplementation,
+	});
+	const storedCatalog = [{ id: "claude-x-low", name: "Claude X", api: "agy-cloudcode", provider: "agy-subscription", input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }];
+	const restored = await provider.refreshModels!(refreshContext({ access: "token", projectId: "proj" }, false,
+		{ stored: { models: storedCatalog } })) as Array<{ id: string }>;
+	assert.deepEqual(restored.map((m) => m.id), ["claude-x-low"], "the persisted catalog is restored");
+	assert.equal(fetched, 0, "the restore pass makes no network request");
+});
+
+test("the restore pass filters the placeholder out of a stored entry", async () => {
+	const provider = createAgyProvider({ fetchImpl: (async () => { throw new Error("no network"); }) as FetchImplementation });
+	const storedCatalog = [{ id: CATALOG_PLACEHOLDER }, { id: "claude-x-low", provider: "agy-subscription" }];
+	const restored = await provider.refreshModels!(refreshContext({ access: "t", projectId: "p" }, false,
+		{ stored: { models: storedCatalog } })) as Array<{ id: string }>;
+	assert.deepEqual(restored.map((m) => m.id), ["claude-x-low"], "a stale placeholder in the store is dropped");
+});
+
+test("a failed fetch throws and publishes nothing, so a bad catalog cannot clobber a good one", async () => {
+	// Unlike the Codex catalog (unverified endpoint, silent fallback to the
+	// static list), this endpoint is verified, so a failure is surfaced to
+	// Pi's refresh -- which keeps the previous models and reports the error.
+	// Either way, nothing is persisted on failure.
+	const published: unknown[] = [];
+	const provider = createAgyProvider({
+		fetchImpl: (async () => new Response("nope", { status: 500 })) as FetchImplementation,
+	});
+	await assert.rejects(provider.refreshModels!(refreshContext({ access: "token", projectId: "proj" }, true,
+		{ publish: async (p: unknown) => { published.push(p); return true; } })), /HTTP 500/);
+	assert.equal(published.length, 0, "nothing is persisted on failure");
 });

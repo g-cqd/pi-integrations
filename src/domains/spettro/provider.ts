@@ -1,4 +1,5 @@
 import type { ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { AnyModel } from "@earendil-works/pi-ai";
 import {
 	apiKeyCredentials, browserUrl, HttpStatusError, record, requestJson,
 	safeBaseUrl, validSecret, waitFor, pollUntil, type HttpOptions,
@@ -78,7 +79,13 @@ export function createSpettroProvider(deps: Dependencies): ProviderConfig {
 			getApiKey: (credentials) => credentials.access,
 		},
 		refreshModels: async (context) => {
-			if (!context.allowNetwork) return [placeholderModel];
+			// Restore first so a persisted catalog survives restarts.
+			if (!context.allowNetwork) {
+				const stored = (context as { stored?: { models?: unknown[] } }).stored;
+				const restored = stored?.models?.filter((m): m is ProviderModelConfig =>
+					typeof m === "object" && m !== null && (m as { id?: unknown }).id !== CATALOG_PLACEHOLDER) ?? [];
+				return restored.length > 0 ? restored : [placeholderModel];
+			}
 			const credentials = context.credential;
 			const key = credentials && ("access" in credentials ? credentials.access : credentials.key);
 			if (!validSecret(key)) return [placeholderModel];
@@ -99,7 +106,10 @@ export function createSpettroProvider(deps: Dependencies): ProviderConfig {
 					maxTokens: 8192, compat: { supportsDeveloperRole: false },
 				});
 			}
-			return models.length > 0 ? models : [placeholderModel];
+			const listed = (models.length > 0 ? models : [placeholderModel]).map((m) => ({ ...m, provider: PROVIDER_ID })) as unknown as ProviderModelConfig[];
+			// Persist only a real catalog; the placeholder is not worth a store entry.
+			if (models.length > 0) await context.publish({ persist: { models: listed as unknown as AnyModel[], checkedAt: Date.now() } });
+			return listed;
 		},
 		streamSimple: (model, context, options) => {
 			if (model.id === CATALOG_PLACEHOLDER) throw new Error("Spettro catalog not loaded; sign in and refresh models.");

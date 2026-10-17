@@ -168,8 +168,17 @@ const positiveInt = (v: unknown) => (typeof v === "number" && Number.isSafeInteg
 
 /**
  * The live agent-model catalog. Ids come from the server's agent model groups
- * (what `agy models` lists); without groups, every enabled, non-internal model.
- * Limits are taken as reported; nothing is guessed.
+ * (the "Recommended" set, what `agy models` lists first), followed by the
+ * tiered models the server names in `tieredModelIds`, offered under their BASE
+ * ids. Limits are taken as reported; nothing is guessed.
+ *
+ * The base-id choice is measured, not stylistic: `gemini-3.8-flash-tiered`
+ * answers 200 to this package's envelope verbatim, while the CLI's expanded
+ * display ids (`gemini-3.8-flash-medium`) answer 404 for any client but the
+ * registered CLI, even with the CLI's own labels and sessionId reproduced
+ * (bisected live 2026-10-17). The expanded ids are the CLI's presentation of
+ * one tiered model at different thinking budgets; the backend accepts the base
+ * id and a `thinkingConfig.thinkingBudget`, so that is what this domain offers.
  */
 export async function fetchAvailableModels(accessToken: string, opts: HttpOptions & { baseUrl: string; projectId: string }): Promise<AvailableModels> {
 	const json = record(await post(`${opts.baseUrl}/v1internal:fetchAvailableModels`,
@@ -185,9 +194,24 @@ export async function fetchAvailableModels(accessToken: string, opts: HttpOption
 			}
 		}
 	}
-	const order = grouped.length ? grouped : Object.keys(map);
+	// The server names tiered models in a map of tier -> [ids]. They are real,
+	// usable ids that the Recommended groups omit, so they are appended after
+	// the grouped set rather than dropped.
+	const tiered = new Set<string>();
+	const tieredIds = json.tieredModelIds;
+	if (tieredIds && typeof tieredIds === "object" && !Array.isArray(tieredIds)) {
+		for (const ids of Object.values(tieredIds as Record<string, unknown>)) {
+			for (const id of Array.isArray(ids) ? ids : []) {
+				if (typeof id === "string") tiered.add(id);
+			}
+		}
+	}
+	const order = grouped.length ? [...grouped, ...tiered] : Object.keys(map);
+	const seen = new Set<string>();
 	const models: AvailableModel[] = [];
 	for (const id of order) {
+		if (seen.has(id)) continue;
+		seen.add(id);
 		const d = map[id];
 		if (!MODEL_ID_RE.test(id) || !d || typeof d !== "object" || Array.isArray(d)) continue;
 		const m = d as Record<string, unknown>;
