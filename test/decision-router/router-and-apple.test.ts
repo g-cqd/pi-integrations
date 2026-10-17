@@ -12,6 +12,7 @@ import {
 	createAppleFoundationProvider,
 	createAppleFoundationStreamSimple,
 	ensureSwiftBridgeBinary,
+	isSupportedAppleHost,
 	LOCAL_CREDENTIAL_KEY,
 	MODEL_GENERAL_ID,
 	MODEL_TAGGING_ID,
@@ -188,9 +189,9 @@ test("Apple Foundation Models provider is both auto-selectable on macOS 26+ and 
 });
 
 test("Swift bridge source compiles cleanly with swiftc and reports live availability", async () => {
-	// On Linux CI or environments without swiftc, verify swiftc presence first.
-	// Compiling full swiftc on shared Ubuntu runners can exceed bun's 5s default test timeout,
-	// so skip or gracefully test on supported hosts.
+	// Real swiftc compilation takes ~1-2s on Apple Silicon but can hang or fail on
+	// Linux CI runners where FoundationModels is unavailable and swiftc is emulated.
+	if (!isSupportedAppleHost()) return;
 	const tempDir = join(tmpdir(), `pi-apple-fm-bridge-test-${Date.now()}`);
 	try {
 		const binaryPath = await ensureSwiftBridgeBinary(process.env, tempDir);
