@@ -27,7 +27,11 @@ export function createAutomaticSecretResolver(options: HttpOptions & {
 				cached = candidate;
 				return cached;
 			}
-			if (response.status !== 400 || error !== "invalid_client") {
+			// The ERROR CODE is the signal, not the status: Google answers
+			// invalid_client with HTTP 401 (verified live) and invalid_grant with
+			// 400. Checking the status for the rejection path made the very first
+			// wrongly-sliced candidate abort discovery instead of advancing.
+			if (error !== "invalid_client") {
 				throw new Error("Antigravity client-secret discovery could not verify the installed binary. Try again later or configure AGY_OAUTH_CLIENT_SECRET.");
 			}
 		}
