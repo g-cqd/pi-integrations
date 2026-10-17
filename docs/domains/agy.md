@@ -1,3 +1,4 @@
+<!-- Runtime secret discovery -->
 # Antigravity (`agy`) domain
 
 Provider ID: `agy-subscription`. Login label: **Antigravity Subscription (experimental)**.
@@ -183,3 +184,23 @@ Pi's real conversion helpers only.
 This uses a first-party client identity outside its own application, the same
 category of risk as the Claude subscription gate and the Codex client. Google's
 current terms for it have not been verified here. Read them before signing in.
+
+## Automatic local client-secret discovery
+
+No extraction command is required. Before sign-in and OAuth refresh (including
+refresh before a model-catalog fetch), the provider checks the environment and
+configured secret file, then reads the installed `agy` binary. It verifies
+candidates with Google's token endpoint and caches the accepted value only in
+memory for this provider instance. It never executes the binary or writes the
+recovered value to disk. A model fetch with a still-valid token needs no secret.
+
+Set `AGY_BINARY` to override discovery. Otherwise discovery searches PATH for
+`agy` and the tarball name `antigravity`, then standard Homebrew, system and
+user-local bin paths, and the Apple-silicon Homebrew Caskroom. This covers GUI
+launches without the shell's PATH. Unknown/custom installations can always use
+`AGY_BINARY`; this is not an exhaustive filesystem search.
+
+Verification makes live, redirect-refusing requests to Google's token endpoint;
+only HTTP 400 `invalid_grant` accepts a candidate. Inconclusive responses stop
+rather than silently selecting a value. No user grant is sent by the probe.
+The optional operator extraction command remains available but is not needed.

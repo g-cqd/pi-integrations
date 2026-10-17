@@ -66,3 +66,10 @@ joined, before the credential shapes are applied. Adding an encoding means
 adding it to `views()` and to the canary test in
 `test/agy/no-bundled-secret.test.ts`, which asserts the guard fires for every
 decoding it claims to support.
+
+Antigravity's provider can also discover the app client secret from the user's
+installed binary when no explicit environment/file value is configured. This
+reads local executable bytes and verifies candidates against Google; the value
+is cached in provider-local memory, never automatically persisted. `AGY_BINARY`
+overrides binary discovery. Binary updates that remove plaintext candidates or
+change Google's verification behavior require updating discovery.

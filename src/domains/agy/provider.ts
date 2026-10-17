@@ -9,9 +9,10 @@ import type { AnyModel } from "@earendil-works/pi-ai";
 import { generatePKCE, validSecret, type HttpOptions } from "../../shared/index.ts";
 import { fetchAvailableModels, loadCodeAssist, resolveBaseUrl, PROJECT_ID_RE, type AvailableModel } from "./cloudcode.ts";
 import {
-	buildAuthorizeUrl, exchangeAuthorizationCode, parseAuthorizationInput, refreshCredentials, requireClientSecret,
+	buildAuthorizeUrl, exchangeAuthorizationCode, parseAuthorizationInput, refreshCredentials, requireClientSecret, resolveClientSecret,
 	type AgyCredentials,
 } from "./oauth.ts";
+import { createAutomaticSecretResolver } from "./secret-resolver.ts";
 import { API_ID, createAgyStreamSimple, encodeApiKey } from "./stream.ts";
 
 export const PROVIDER_ID = "agy-subscription";
@@ -51,7 +52,11 @@ export function createAgyProvider(deps: Dependencies = {}): ProviderConfig {
 	const env = deps.env ?? process.env;
 	const base = resolveBaseUrl(env);
 	const now = deps.now ?? Date.now;
-	const oauthOptions = (signal?: AbortSignal) => ({ fetchImpl: deps.fetchImpl, signal, now, clientSecret: deps.clientSecret });
+	const automaticSecret = createAutomaticSecretResolver({ env, fetchImpl: deps.fetchImpl });
+	const oauthOptions = async (signal?: AbortSignal) => {
+		const secret = deps.clientSecret ? deps.clientSecret() : resolveClientSecret(env) ?? await automaticSecret(signal);
+		return { fetchImpl: deps.fetchImpl, signal, now, clientSecret: () => secret };
+	};
 	const streamSimple = deps.streamSimple ?? createAgyStreamSimple({ baseUrl: base, fetchImpl: deps.fetchImpl, now });
 
 	const placeholder: ProviderModelConfig = {
@@ -61,7 +66,7 @@ export function createAgyProvider(deps: Dependencies = {}): ProviderConfig {
 
 	async function login(callbacks: OAuthLoginCallbacks) {
 		callbacks.signal?.throwIfAborted();
-		requireClientSecret(oauthOptions()); // fail before opening a browser
+		requireClientSecret(await oauthOptions(callbacks.signal)); // fail before opening a browser
 		const { verifier, challenge } = await generatePKCE();
 		callbacks.signal?.throwIfAborted();
 		const state = randomState();
@@ -74,7 +79,7 @@ export function createAgyProvider(deps: Dependencies = {}): ProviderConfig {
 		const parsed = parseAuthorizationInput(pasted, state);
 		if (!parsed) throw new Error("Invalid authorization response. Paste the authorization code (or the full redirect URL) from this sign-in, or restart /login.");
 		callbacks.onProgress?.("Exchanging authorization code…");
-		const credentials = await exchangeAuthorizationCode({ code: parsed.code, codeVerifier: verifier, ...oauthOptions(callbacks.signal) });
+		const credentials = await exchangeAuthorizationCode({ code: parsed.code, codeVerifier: verifier, ...await oauthOptions(callbacks.signal) });
 		callbacks.onProgress?.("Looking up your Antigravity project…");
 		const account = await loadCodeAssist(credentials.access, { baseUrl: base, fetchImpl: deps.fetchImpl, signal: callbacks.signal });
 		return { ...credentials, projectId: account.projectId, ...(account.tierId ? { tierId: account.tierId } : {}) };
@@ -89,7 +94,7 @@ export function createAgyProvider(deps: Dependencies = {}): ProviderConfig {
 			name: DISPLAY_NAME,
 			isSubscription: true,
 			login,
-			refreshToken: (credentials, signal) => refreshCredentials(credentials as AgyCredentials, oauthOptions(signal)),
+			refreshToken: async (credentials, signal) => refreshCredentials(credentials as AgyCredentials, await oauthOptions(signal)),
 			getApiKey: (credentials) => {
 				const projectId = (credentials as AgyCredentials).projectId;
 				return typeof projectId === "string" ? encodeApiKey(credentials.access, projectId) : JSON.stringify({ token: credentials.access });
