@@ -24,9 +24,11 @@ Two consequences for the `agy` secret, which is a live credential of the app:
   real `~/.config/pi-integrations/agy-oauth-client-secret`, so a developer who
   followed the documented setup would see unrelated tests fail, and a local
   credential would leak into test output.
-- `scripts/extract-agy-client-secret.sh` is an operator tool, not a test. It makes
+- `scripts/extract-agy-client-secret.ts` is an operator tool, not a test. It makes
   a real token-endpoint request by design, so it is deliberately outside CI and
-  outside the test suites.
+  outside the test suites. Its search rules are pure and live in
+  `scripts/extract/candidates.ts`, where `test/agy/extract-candidates.test.ts`
+  covers them with synthetic, secret-shaped fixtures.
 
 ## Code boundaries
 

@@ -57,33 +57,37 @@ the `agy` binary, verifies each against the token endpoint, and writes the accep
 one to the run-time path above with mode 600:
 
 ```sh
-./scripts/extract-agy-client-secret.sh            # defaults to $(command -v agy)
+bun run agy:extract-secret            # defaults to the agy on PATH
+bun run agy:extract-secret -- --check # verify only, write nothing
 ```
 
 Nothing is trusted on shape alone. Two details make a hand-rolled search unreliable,
-and the script exists because of them:
+and the extractor exists because of them:
 
 - **Greedy matches are wrong.** Google secrets sit in the binary's string table as
   adjacent fixed-width strings with no separator, so
   `strings agy | grep -o 'GOCSPX-[A-Za-z0-9_-]*'` runs two secrets together and yields
   a value that does not exist in the file. The true secret is 35 bytes; the greedy
-  result is not a candidate at all.
+  result is not a candidate at all. The extractor slices to each plausible length
+  and applies an upper bound, so a slice running into the next secret is rejected.
 - **Offsets do not survive a rebuild.** Any recorded address is valid for exactly one
   build. The extractor searches for content and never persists a location, so an app
   update changes nothing unless Google rotates the secret.
 
-Candidates are sliced to each plausible length and confirmed by the token endpoint
-with a deliberately bogus code: `invalid_grant` means Google accepted the client
-credentials and rejected only the code, while a wrong value answers `invalid_client`.
-So a neighbouring secret or a decoy is discarded rather than configured. The secret
-is sent only in a POST body, never argv, so it stays out of the process table and
-shell history, and it is never echoed. Keep the value out of logs and out of this
-repository. Sign-in checks for the secret **before** opening a browser link and fails
-with these instructions if it is missing or malformed.
+Candidates are confirmed by the token endpoint with a deliberately bogus code:
+`invalid_grant` means Google accepted the client credentials and rejected only the
+code, while a wrong value answers `invalid_client`. So a neighbouring secret or a
+decoy is discarded rather than configured, and no inconclusive response is treated as
+a pass. The secret is sent only in a POST body, never argv, so it stays out of the
+process table and shell history, and it is never echoed. Keep the value out of logs
+and out of this repository. Sign-in checks for the secret **before** opening a browser
+link and fails with these instructions if it is missing or malformed.
 
 If the extractor reports that no candidate was accepted, the installed `agy` is using
 a rotated or different client secret; update `agy` and re-run it rather than
-substituting a guess.
+substituting a guess. The search rules are pure and unit-tested in
+`test/agy/extract-candidates.test.ts`; only the script itself talks to Google, which
+is why it is outside `bun test` and `scripts/ci.sh`.
 
 The secret is never stored in credentials, never logged, and never echoed in errors
 (tests assert all three). Google's documentation says an installed application's
