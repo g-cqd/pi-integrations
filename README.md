@@ -29,7 +29,7 @@ Modular subscription, local-model, and decision-routing integrations for [Pi](ht
 | **Codex Subscription** | `codex-subscription` | ChatGPT browser callback (`:1455` / paste) or headless device code | Live account catalog (`/backend-api/codex/models`) with automatic fallback to Pi's static Codex catalog | [docs/domains/codex.md](docs/domains/codex.md) |
 | **Antigravity (`agy`)** | `agy-subscription` | Google OAuth pasted code + automatic local binary client-secret discovery | Live Cloud Code catalog (`gemini-4-argon-*`, `gemini-3.8-flash-*`, `claude-opus-5-5-*`, `claude-sonnet-5-5-*`, `gpt-oss-120b-medium`) | [docs/domains/agy.md](docs/domains/agy.md) |
 | **Spettro** | `spettro` | Browser device session + polling | Live `/v1/models` catalog discovered from your signed-in account | [docs/domains/spettro.md](docs/domains/spettro.md) |
-| **Mistral Vibe** | `mistral-vibe` | Browser approval + PKCE polling/exchange | Service-issued API key scoped to **Mistral Large 4** (`mistral-large-4`, 1M context) | [docs/domains/mistral-vibe.md](docs/domains/mistral-vibe.md) |
+| **Mistral Vibe** | `mistral-vibe` | Browser approval + PKCE polling/exchange | Service-issued API key scoped to the Vibe plan models: **Mistral Large 4**, **Mistral Medium 3.5** (catalog), **GLM 5.3**, **GLM 5.3 Flash** (inline), all zero-cost | [docs/domains/mistral-vibe.md](docs/domains/mistral-vibe.md) |
 
 > [!IMPORTANT]
 > **Experimental & Unofficial.** A successful login is not proof of inference entitlement, subscription billing, model availability, or zero charges. Model catalogs narrow what is *offered*, not what is permitted; a `403` or `429` from an inference request is still the authoritative signal. Review each provider's terms before signing in. This project is not affiliated with the providers or Pi maintainers.
@@ -155,7 +155,7 @@ src/
     codex/                  ChatGPT OAuth (loopback + device code) + live /codex/models catalog
     agy/                    Google OAuth + in-memory binary secret discovery + cloudcode-pa stream
     spettro/                Device-session polling + live /v1/models catalog
-    mistral-vibe/           Console PKCE polling + API-key exchange (Mistral Large 4)
+    mistral-vibe/           Console PKCE polling + API-key exchange (Vibe plan models)
     apple-foundation/       macOS 26+ FoundationModels native Swift bridge + @Generable tools
     decision-router/        System One classifier client + live quota probes + utility router
 scripts/

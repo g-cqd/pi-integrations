@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "bun:test";
-import { createMistralVibeProvider, MODEL_ID, selectMistralLarge4 } from "../../src/domains/mistral-vibe/provider.ts";
+import { createMistralVibeProvider, selectVibeModels } from "../../src/domains/mistral-vibe/provider.ts";
 import { sequenceFetch, virtualClock, loginCallbacks } from "../support/fixtures.ts";
 
 function fixture(payloads: unknown[]) {
@@ -110,16 +110,34 @@ test("Mistral domain has no Keychain or first-party identity override", () => {
 	assert.equal(f.config.oauth!.isSubscription, undefined, "browser sign-in is not proof of subscription billing");
 });
 
-test("the domain offers exactly Mistral Large 4", () => {
-	assert.equal(MODEL_ID, "mistral-large-4");
-	const catalog = [{ id: "mistral-small-2603" }, { id: "mistral-large-4", extra: 1 }, { id: "codestral-2508" }];
-	assert.deepEqual(selectMistralLarge4(catalog), [{ id: "mistral-large-4", extra: 1 }]);
+test("the domain offers the Vibe plan's four models at zero cost", () => {
+	const catalog = [
+		{ id: "mistral-small-2603", cost: 9 },
+		{ id: "mistral-large-4", extra: 1, cost: 9 },
+		{ id: "mistral-medium-latest", extra: 2, cost: 9 },
+		{ id: "codestral-2508", cost: 9 },
+	];
+	const selected = selectVibeModels(catalog);
+	assert.equal(selected.length, 4);
+	assert.deepEqual(
+		selected.map((model) => model.id),
+		["mistral-large-4", "mistral-medium-latest", "zai-glm-5-3", "zai-glm-5-3-flash"],
+	);
+	assert.deepEqual((selected[0] as { extra: number }).extra, 1);
+	assert.deepEqual((selected[1] as { extra: number }).extra, 2);
+	for (const model of selected) {
+		assert.deepEqual(model.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+	}
 });
 
-test("a catalog without a unique Large 4 fails loudly instead of offering another model", () => {
-	assert.throws(() => selectMistralLarge4([{ id: "mistral-small-2603" }]), /no unique "mistral-large-4"/);
-	assert.throws(() => selectMistralLarge4([]), /found 0/);
-	assert.throws(() => selectMistralLarge4([{ id: "mistral-large-4" }, { id: "mistral-large-4" }]), /found 2/);
+test("a catalog without a unique Vibe model fails loudly instead of offering another model", () => {
+	assert.throws(() => selectVibeModels([{ id: "mistral-medium-latest" }]), /no unique "mistral-large-4"/);
+	assert.throws(() => selectVibeModels([]), /no unique "mistral-large-4"/);
+	assert.throws(() => selectVibeModels([{ id: "mistral-large-4" }, { id: "mistral-large-4" }]), /found 2/);
+	assert.throws(
+		() => selectVibeModels([{ id: "mistral-large-4" }, { id: "mistral-medium-latest" }, { id: "mistral-medium-latest" }]),
+		/no unique "mistral-medium-latest" entry \(found 2\)/,
+	);
 });
 
 test("Vibe sign-in is the only credential path: no API-key configuration is declared", () => {

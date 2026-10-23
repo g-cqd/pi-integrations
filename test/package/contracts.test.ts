@@ -57,10 +57,15 @@ test("sign-in is the only credential path: no registered provider declares API-k
 	}
 });
 
-test("the Mistral domain offers only Mistral Large 4", () => {
+test("the Mistral domain offers the Vibe plan's four models", () => {
 	const f = fakePi();
 	mistral(f.pi);
-	assert.deepEqual((f.providers.get("mistral-vibe")!.models ?? []).map((m) => m.id), ["mistral-large-4"]);
+	assert.deepEqual((f.providers.get("mistral-vibe")!.models ?? []).map((m) => m.id), [
+		"mistral-large-4",
+		"mistral-medium-latest",
+		"zai-glm-5-3",
+		"zai-glm-5-3-flash",
+	]);
 });
 
 test("the Codex domain reuses Pi's Codex catalog and the Codex responses API", () => {

@@ -2,7 +2,8 @@
  * Browser sign-in protocol observed in Mistral's public Vibe source.
  * PKCE process -> browser approval -> poll -> API-key exchange, not OAuth refresh.
  */
-import type { ProviderConfig } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai/compat";
+import type { ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { generatePKCE } from "../../shared/pkce.ts";
 import {
 	apiKeyCredentials, trustedUrl, HttpStatusError, record, requestJson, validSecret, waitFor, pollUntil, type HttpOptions,
@@ -10,20 +11,70 @@ import {
 
 export const PROVIDER_ID = "mistral-vibe";
 
-/**
- * The one model this domain offers. Its API name is `mistral-large-4` on
- * Mistral's price page (see docs/pricing.md), and Pi's catalog carries the same
- * id with a 1M-token context, reasoning, and image input.
- */
-export const MODEL_ID = "mistral-large-4";
+const API_BASE = "https://api.mistral.ai";
+const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
-/** Keep only Mistral Large 4. Throws if the catalog lacks it, rather than offering something else. */
-export function selectMistralLarge4<T extends { id: string }>(models: readonly T[]): T[] {
-	const selected = models.filter((model) => model.id === MODEL_ID);
-	if (selected.length !== 1) {
-		throw new Error(`Pi's Mistral catalog has no unique "${MODEL_ID}" entry (found ${selected.length}); update Pi or this domain.`);
-	}
-	return selected;
+/**
+ * The models Mistral's Vibe plan meters against the subscription. Large 4 and
+ * Medium 3.5 are re-hosted from Pi's bundled Mistral catalog; the Z.ai GLM
+ * models are declared inline because Pi's catalog does not carry them
+ * (specs from `GET /v1/model-catalog?surface=vibe-code`).
+ */
+export const CATALOG_MODEL_IDS = ["mistral-large-4", "mistral-medium-latest"] as const;
+
+const GLM_THINKING_LEVEL_MAP: NonNullable<Model<"mistral-conversations">["thinkingLevelMap"]> = {
+	off: null,
+	minimal: null,
+	low: "low",
+	medium: null,
+	high: "high",
+	xhigh: null,
+	max: "max",
+};
+
+export const VIBE_ONLY_MODELS: ProviderModelConfig[] = [
+	{
+		id: "zai-glm-5-3",
+		name: "GLM 5.3",
+		api: "mistral-conversations",
+		baseUrl: API_BASE,
+		reasoning: true,
+		thinkingLevelMap: GLM_THINKING_LEVEL_MAP,
+		input: ["text"],
+		cost: ZERO_COST,
+		contextWindow: 1_048_576,
+		maxTokens: 131_072,
+	},
+	{
+		id: "zai-glm-5-3-flash",
+		name: "GLM 5.3 Flash",
+		api: "mistral-conversations",
+		baseUrl: API_BASE,
+		reasoning: true,
+		thinkingLevelMap: GLM_THINKING_LEVEL_MAP,
+		input: ["text", "image"],
+		cost: ZERO_COST,
+		contextWindow: 1_048_576,
+		maxTokens: 131_072,
+	},
+];
+
+/**
+ * Build the Vibe plan's model list from Pi's bundled Mistral catalog plus the
+ * inline GLM entries. Catalog entries keep their metadata but drop
+ * pay-as-you-go pricing: Vibe usage is metered against the subscription, not
+ * per-token API credits. Throws if a catalog model is missing or ambiguous,
+ * rather than offering something else.
+ */
+export function selectVibeModels<T extends { id: string }>(models: readonly T[]): (T | ProviderModelConfig)[] {
+	const fromCatalog = CATALOG_MODEL_IDS.map((id) => {
+		const matches = models.filter((model) => model.id === id);
+		if (matches.length !== 1) {
+			throw new Error(`Pi's Mistral catalog has no unique "${id}" entry (found ${matches.length}); update Pi or this domain.`);
+		}
+		return { ...matches[0], cost: ZERO_COST };
+	});
+	return [...fromCatalog, ...VIBE_ONLY_MODELS];
 }
 const CONSOLE = "https://console.mistral.ai";
 const AUTH_API = CONSOLE + "/api";
@@ -42,7 +93,7 @@ export function createMistralVibeProvider(deps: Dependencies): ProviderConfig {
 		requestJson(url, init, { fetchImpl: deps.fetchImpl, signal });
 	return {
 		name: "Mistral Vibe (experimental)",
-		baseUrl: "https://api.mistral.ai",
+		baseUrl: API_BASE,
 		api: "mistral-conversations",
 		models: deps.models,
 		streamSimple: deps.streamSimple,

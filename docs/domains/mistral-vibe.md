@@ -3,7 +3,11 @@
 - **Provider ID:** `mistral-vibe`
 - **Login Label:** **Mistral Vibe (experimental)**
 - **Credential Type:** Browser PKCE approval exchanged for a Mistral API key
-- **Model Offered:** `mistral-large-4` (**Mistral Large 4**, 1M context, reasoning + vision)
+- **Models Offered:** the Vibe plan's `surface=vibe-code` catalog, at zero cost (usage is metered against the subscription, not per-token API credits):
+  - `mistral-large-4` (**Mistral Large 4**, 1M context, reasoning + vision) — re-hosted from Pi's bundled Mistral catalog
+  - `mistral-medium-latest` (**Mistral Medium 3.5**, 262K context, reasoning + vision) — re-hosted from Pi's bundled Mistral catalog
+  - `zai-glm-5-3` (**GLM 5.3**, 1M context, reasoning) — declared inline (not in Pi's catalog)
+  - `zai-glm-5-3-flash` (**GLM 5.3 Flash**, 1M context, reasoning + vision) — declared inline (not in Pi's catalog)
 
 ---
 
