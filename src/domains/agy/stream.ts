@@ -30,6 +30,7 @@ import { sanitizeSurrogates } from "@earendil-works/pi-ai/utils/sanitize-unicode
 import type { ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { iterateSse, validSecret, type FetchImplementation } from "../../shared/index.ts";
 import { describeFailure, PROJECT_ID_RE, requestHeaders, USER_AGENT } from "./cloudcode.ts";
+import { signReplayedFunctionCalls } from "./thought-signature.ts";
 
 export const API_ID = "agy-cloudcode";
 const HEADER_TIMEOUT_MS = 120_000;
@@ -59,6 +60,7 @@ export function buildGeminiRequest(model: Model<never>, context: TranscriptConte
 	const normalized = collapseSystemMessages(context);
 	const base = buildBaseOptions(model as never, normalized as never, options as never, undefined);
 	const contents = convertMessages(model as never, normalized as never);
+	signReplayedFunctionCalls(model.id, contents as never);
 	const initialSystem = getInitialSystemMessage(normalized.messages as never);
 	const tools = getCurrentTools(normalized.messages as never);
 
