@@ -107,6 +107,46 @@ test("a model that needs call ids (claude-, gpt-oss-) round-trips them through t
 	assert.equal(result_.parts[0].functionResponse.response.output, "sunny");
 });
 
+const assistantCalls = (provider: string, modelId: string, content: unknown[]) => ({
+	role: "assistant", content, api: API_ID, provider, model: modelId,
+	usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+	stopReason: "toolUse", timestamp: 0,
+});
+const callHistory = (assistant: unknown) => [
+	{ role: "user", content: "run it", timestamp: 0 },
+	assistant,
+	{ role: "toolResult", toolCallId: "call_1", toolName: "get_weather", content: [{ type: "text", text: "sunny" }], isError: false, timestamp: 0 },
+];
+const SENTINEL = "skip_thought_signature_validator";
+
+test("a Gemini 3 function call without a usable signature gets the validator-skip sentinel, only on the first call of a turn", () => {
+	// History from another provider carries no signature that Gemini may accept.
+	const foreign = assistantCalls("anthropic", "claude-opus-4-8", [
+		{ type: "toolCall", id: "call_1", name: "get_weather", arguments: { city: "Paris" } },
+		{ type: "toolCall", id: "call_2", name: "get_weather", arguments: { city: "Rome" } },
+	]);
+	const request = buildGeminiRequest(model(), context({ messages: callHistory(foreign) }), undefined) as any;
+	const parts = request.contents[1].parts;
+	assert.equal(parts[0].thoughtSignature, SENTINEL);
+	assert.equal(parts[1].thoughtSignature, undefined);
+});
+
+test("a real signature from the same model is kept, not replaced by the sentinel", () => {
+	const signed = assistantCalls("agy-subscription", "gemini-3.8-flash-low", [
+		{ type: "toolCall", id: "call_1", name: "get_weather", arguments: {}, thoughtSignature: "AAAA" },
+	]);
+	const request = buildGeminiRequest(model(), context({ messages: callHistory(signed) }), undefined) as any;
+	assert.equal(request.contents[1].parts[0].thoughtSignature, "AAAA");
+});
+
+test("models that are not Gemini 3 or later never receive the sentinel", () => {
+	const foreign = assistantCalls("anthropic", "claude-opus-4-8", [{ type: "toolCall", id: "call_1", name: "get_weather", arguments: {} }]);
+	for (const id of ["claude-sonnet-5-5-low", "gemini-2.5-pro", "gpt-oss-120b"]) {
+		const request = buildGeminiRequest(model({ id }), context({ messages: callHistory(foreign) }), undefined) as any;
+		assert.equal(request.contents[1].parts[0].thoughtSignature, undefined, id);
+	}
+});
+
 test("the envelope carries exactly the fields the backend defines, with the project and honest identity", () => {
 	let n = 0;
 	const envelope = buildEnvelope(model(), { contents: [] }, PROJECT, () => `id-${++n}`);
