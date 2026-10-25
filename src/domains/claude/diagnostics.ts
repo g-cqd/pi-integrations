@@ -33,6 +33,8 @@ import { quotaExplanation } from "./quota.ts";
 /** HTTP statuses observed in gate-rejection or subscription-auth failures. */
 const DRIFT_STATUSES = new Set([400, 401, 403, 429]);
 const BODY_READ_LIMIT = 4096;
+/** The longest the diagnostic waits for a rejected body; the caller's own read is unaffected. */
+const BODY_READ_TIMEOUT_MS = 2000;
 const ORIGINAL_ERROR_LIMIT = 300;
 export const DRIFT_DIAGNOSTIC_TYPE = "claude_subscription_protocol_drift";
 
@@ -130,6 +132,40 @@ export function gateFingerprint(payload: unknown): GateFingerprint {
 	};
 }
 
+/**
+ * Up to BODY_READ_LIMIT bytes of a (cloned) rejected body, as text. Stops at the limit, at the end, or after
+ * BODY_READ_TIMEOUT_MS, so a stalled or endless body can neither hang the request nor grow memory. Cancelling
+ * the clone is not awaited: on a tee'd stream the cancel settles only when both branches have cancelled.
+ */
+async function readBoundedBody(response: Response): Promise<string> {
+	const reader = response.body?.getReader();
+	if (!reader) return "";
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), BODY_READ_TIMEOUT_MS); });
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		while (total < BODY_READ_LIMIT) {
+			const next = await Promise.race([reader.read(), deadline]);
+			if (next === "timeout" || next.done) break;
+			chunks.push(next.value);
+			total += next.value.length;
+		}
+	} finally {
+		clearTimeout(timer);
+		reader.cancel().catch(() => { /* best-effort: only our branch is released */ });
+	}
+	const bytes = new Uint8Array(Math.min(total, BODY_READ_LIMIT));
+	let offset = 0;
+	for (const chunk of chunks) {
+		const room = bytes.length - offset;
+		if (room <= 0) break;
+		bytes.set(chunk.length > room ? chunk.subarray(0, room) : chunk, offset);
+		offset += Math.min(chunk.length, room);
+	}
+	return new TextDecoder().decode(bytes);
+}
+
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 function diagnosticHeaders(headers: Headers): Record<string, string> {
@@ -158,8 +194,7 @@ export function diagnosticFetch(capture: DriftCapture, fetchImpl?: FetchLike): t
 			capture.status = response.status;
 			capture.headers = diagnosticHeaders(response.headers);
 			try {
-				const text = await response.clone().text();
-				const summary = summarizeErrorBody(text.slice(0, BODY_READ_LIMIT));
+				const summary = summarizeErrorBody(await readBoundedBody(response.clone()));
 				if (summary) capture.errorBody = summary;
 			} catch { /* best-effort: the original response is unaffected */ }
 		}
