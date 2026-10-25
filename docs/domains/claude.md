@@ -41,6 +41,7 @@ The gate is **idempotent, non-mutating, and fail-safe**: it chains after any cal
 
 Because the backend classifier rules are undocumented and can evolve, HTTP `400`, `401`, `403`, and `429` rejections are enriched with a credential-safe diagnostic report:
 
+- **Quota Evidence First:** An HTTP `429` with an explicitly `rejected` five-hour, weekly, model-weekly, or account quota is reported as a usage limit, not protocol drift, unless overage is explicitly allowed. The report shows valid reset timestamps in UTC, organization-disabled overage, and the request ID; it omits the drift checklist and request fingerprint. Structured diagnostics retain the raw quota evidence and add `classification: "usage_limit"`. Utilization alone does not prove exhaustion; missing or inconclusive headers retain the ambiguous report. This changes diagnostics, not the bundled SDK's retry policy.
 - **Per-Status Interpretation:** Distinguishes classifier rejections (`400 "You're out of extra usage"`) from expired tokens (`401`), organization restrictions (`403`), and rate limits (`429`).
 - **Rate-Limit & Trace Headers:** Captures `request-id` and all `anthropic-ratelimit-*` headers (noting when quota headers are absent).
 - **Structural Request Fingerprint:** Reports model ID, message/tool counts, `max_tokens`, system block count, whether the canonical line matched, and surviving system-role count—without ever echoing tokens (`sk-ant-*`), prompt text, or tool names.

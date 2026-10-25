@@ -28,6 +28,7 @@
 import { appendAssistantMessageDiagnostic, createAssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import type { AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import { CANONICAL_SYSTEM_LINE } from "./canonical.ts";
+import { quotaExplanation } from "./quota.ts";
 
 /** HTTP statuses observed in gate-rejection or subscription-auth failures. */
 const DRIFT_STATUSES = new Set([400, 401, 403, 429]);
@@ -212,8 +213,15 @@ const DRIFT_CHECKLIST = [
 ].join("\n");
 
 function formatDrift(details: DriftDetails): string {
+	const quotaReason = quotaExplanation(details.status, details.quotaHeaders);
+	const driftLike = !quotaReason && isDriftLike(details.status);
 	const lines: string[] = [];
-	lines.push(isDriftLike(details.status)
+	if (quotaReason) {
+		lines.push(quotaReason);
+		if (details.requestId) lines.push(`request-id: ${details.requestId}`);
+		return lines.join("\n");
+	}
+	lines.push(driftLike
 		? `Claude subscription request rejected (possible protocol drift): HTTP ${details.status}.`
 		: `Claude subscription request rejected: HTTP ${details.status}.`);
 	lines.push(interpretation(details.status));
@@ -258,6 +266,7 @@ export class ProtocolDriftError extends Error {
 		const d = this.details;
 		const details: Record<string, unknown> = {
 			status: d.status,
+			classification: quotaExplanation(d.status, d.quotaHeaders) ? "usage_limit" : "unclassified_rejection",
 			quotaHeaders: d.quotaHeaders,
 			...(d.requestId ? { requestId: d.requestId } : {}),
 			...(d.errorBody ? { errorBody: { ...d.errorBody } } : {}),
