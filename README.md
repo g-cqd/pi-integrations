@@ -30,7 +30,7 @@ Modular subscription, local-model, and decision-routing integrations for [Pi](ht
 | **Antigravity (`agy`)** | `agy-subscription` | Google OAuth pasted code + automatic local binary client-secret discovery | Live Cloud Code catalog (`gemini-4-argon-*`, `gemini-3.8-flash-*`, `claude-opus-5-5-*`, `claude-sonnet-5-5-*`, `gpt-oss-120b-medium`) | [docs/domains/agy.md](docs/domains/agy.md) |
 | **Spettro** | `spettro` | Browser device session + polling | Live `/v1/models` catalog discovered from your signed-in account | [docs/domains/spettro.md](docs/domains/spettro.md) |
 | **Copilot (VS Code-style)** | `copilot-vscode` | GitHub device approval using the source-published VS Code OAuth client | Account catalog + Responses / Messages / Chat Completions; official Copilot pricing with cached refresh; quota footer bar (live quota/billing parity unverified) | [docs/domains/copilot.md](docs/domains/copilot.md) |
-| **Mistral Vibe** | `mistral-vibe` | Browser approval + PKCE polling/exchange | Service-issued API key scoped to **Mistral Large 4** (`mistral-large-4`, 1M context) | [docs/domains/mistral-vibe.md](docs/domains/mistral-vibe.md) |
+| **Mistral Vibe** | `mistral-vibe` | Browser approval + PKCE polling/exchange | Service-issued API key across Pi's full Mistral catalog (incl. **Mistral Large 4**, `mistral-large-4`, 1M context, and the `zai-glm-5-*` reasoning models) | [docs/domains/mistral-vibe.md](docs/domains/mistral-vibe.md) |
 
 > [!IMPORTANT]
 > **Experimental & Unofficial.** A successful login is not proof of inference entitlement, subscription billing, model availability, or zero charges. Model catalogs narrow what is *offered*, not what is permitted; a `403` or `429` from an inference request is still the authoritative signal. Review each provider's terms before signing in. This project is not affiliated with the providers or Pi maintainers.
@@ -158,7 +158,7 @@ src/
     copilot/                Source-derived VS Code-style auth + Copilot session/catalog transport
     agy/                    Google OAuth + in-memory binary secret discovery + cloudcode-pa stream
     spettro/                Device-session polling + live /v1/models catalog
-    mistral-vibe/           Console PKCE polling + API-key exchange (Mistral Large 4)
+    mistral-vibe/           Console PKCE polling + API-key exchange (Pi's full Mistral catalog)
     apple-foundation/       macOS 26+ FoundationModels native Swift bridge + @Generable tools
     decision-router/        System One classifier client + live quota probes + utility router
 scripts/

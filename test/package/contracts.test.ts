@@ -59,10 +59,13 @@ test("sign-in is the only credential path: no registered provider declares API-k
 	}
 });
 
-test("the Mistral domain offers only Mistral Large 4", () => {
+test("the Mistral domain offers Pi's whole Mistral catalog", () => {
 	const f = fakePi();
 	mistral(f.pi);
-	assert.deepEqual((f.providers.get("mistral-vibe")!.models ?? []).map((m) => m.id), ["mistral-large-4"]);
+	const ids = (f.providers.get("mistral-vibe")!.models ?? []).map((m) => m.id);
+	assert.deepEqual(ids, getModels("mistral").map((m) => m.id));
+	assert.ok(ids.includes("mistral-large-4"), "Mistral Large 4 stays available");
+	assert.ok(ids.includes("zai-glm-5-3"), "the GLM models the sign-in key answers are listed");
 });
 
 test("the Codex domain reuses Pi's Codex catalog and the Codex responses API", () => {

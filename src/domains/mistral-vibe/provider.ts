@@ -11,19 +11,17 @@ import {
 export const PROVIDER_ID = "mistral-vibe";
 
 /**
- * The one model this domain offers. Its API name is `mistral-large-4` on
- * Mistral's price page (see docs/pricing.md), and Pi's catalog carries the same
- * id with a 1M-token context, reasoning, and image input.
+ * The whole of Pi's Mistral catalog, which is what this domain offers. Every entry is declared for
+ * the conversations API, and the sign-in key is not scoped to one model: a Vibe-issued key answered
+ * `zai-glm-5-3` on `/v1/chat/completions` (probed 2026-10-27), so narrowing the list to a single
+ * model hid models the key can actually run. Throws on an empty catalog rather than registering a
+ * provider with no models.
  */
-export const MODEL_ID = "mistral-large-4";
-
-/** Keep only Mistral Large 4. Throws if the catalog lacks it, rather than offering something else. */
-export function selectMistralLarge4<T extends { id: string }>(models: readonly T[]): T[] {
-	const selected = models.filter((model) => model.id === MODEL_ID);
-	if (selected.length !== 1) {
-		throw new Error(`Pi's Mistral catalog has no unique "${MODEL_ID}" entry (found ${selected.length}); update Pi or this domain.`);
+export function selectMistralCatalog<T extends { id: string }>(models: readonly T[]): T[] {
+	if (models.length === 0) {
+		throw new Error("Pi's Mistral catalog is empty; update Pi or this domain.");
 	}
-	return selected;
+	return [...models];
 }
 const CONSOLE = "https://console.mistral.ai";
 const AUTH_API = CONSOLE + "/api";

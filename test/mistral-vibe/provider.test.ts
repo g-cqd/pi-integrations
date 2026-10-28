@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "bun:test";
-import { createMistralVibeProvider, MODEL_ID, selectMistralLarge4 } from "../../src/domains/mistral-vibe/provider.ts";
+import { createMistralVibeProvider, selectMistralCatalog } from "../../src/domains/mistral-vibe/provider.ts";
 import { sequenceFetch, virtualClock, loginCallbacks } from "../support/fixtures.ts";
 
 function fixture(payloads: unknown[]) {
@@ -110,16 +110,15 @@ test("Mistral domain has no Keychain or first-party identity override", () => {
 	assert.equal(f.config.oauth!.isSubscription, undefined, "browser sign-in is not proof of subscription billing");
 });
 
-test("the domain offers exactly Mistral Large 4", () => {
-	assert.equal(MODEL_ID, "mistral-large-4");
-	const catalog = [{ id: "mistral-small-2603" }, { id: "mistral-large-4", extra: 1 }, { id: "codestral-2508" }];
-	assert.deepEqual(selectMistralLarge4(catalog), [{ id: "mistral-large-4", extra: 1 }]);
+test("the domain offers Pi's whole Mistral catalog, not a single model", () => {
+	// The sign-in key is a standard Mistral API key, not scoped to one model: a Vibe-issued key
+	// answered `zai-glm-5-3` on /v1/chat/completions (probed 2026-10-27), so every catalog entry is real.
+	const catalog = [{ id: "mistral-small-2603" }, { id: "mistral-large-4", extra: 1 }, { id: "zai-glm-5-3" }];
+	assert.deepEqual(selectMistralCatalog(catalog), catalog);
 });
 
-test("a catalog without a unique Large 4 fails loudly instead of offering another model", () => {
-	assert.throws(() => selectMistralLarge4([{ id: "mistral-small-2603" }]), /no unique "mistral-large-4"/);
-	assert.throws(() => selectMistralLarge4([]), /found 0/);
-	assert.throws(() => selectMistralLarge4([{ id: "mistral-large-4" }, { id: "mistral-large-4" }]), /found 2/);
+test("an empty catalog fails loudly instead of registering a provider with no models", () => {
+	assert.throws(() => selectMistralCatalog([]), /empty/);
 });
 
 test("Vibe sign-in is the only credential path: no API-key configuration is declared", () => {

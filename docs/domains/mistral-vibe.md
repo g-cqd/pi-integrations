@@ -3,7 +3,7 @@
 - **Provider ID:** `mistral-vibe`
 - **Login Label:** **Mistral Vibe (experimental)**
 - **Credential Type:** Browser PKCE approval exchanged for a Mistral API key
-- **Model Offered:** `mistral-large-4` (**Mistral Large 4**, 1M context, reasoning + vision)
+- **Models Offered:** Pi's whole Mistral catalog (37 models as of pi-ai 1.4.0), including `mistral-large-4` (**Mistral Large 4**, 1M context, reasoning + vision) and the `zai-glm-5-*` / `glm-5-2` reasoning models. The key is a standard Mistral API key, not scoped to one model: a Vibe-issued key answered `zai-glm-5-3` on `/v1/chat/completions` (probed 2026-10-27).
 
 ---
 

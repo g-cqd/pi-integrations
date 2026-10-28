@@ -14,10 +14,9 @@ USD per million tokens (MTok), the unit Pi's model `cost` uses.
   derived 1-hour cache write (2x input). No new mechanism is needed; the work
   is keeping the data right.
 - This package reuses Pi's bundled catalogs (`getModels("anthropic")`,
-  `getModels("openai-codex")`, and `getModels("mistral")`, the last narrowed to
-  Mistral Large 4) and does not override their costs. Antigravity has no static
-  catalog: its models and limits come from the account, and its cost is zero
-  meaning unknown.
+  `getModels("openai-codex")`, and `getModels("mistral")` in full) and does
+  not override their costs. Antigravity has no static catalog: its models and
+  limits come from the account, and its cost is zero meaning unknown.
 
 ## Re-verify at any time
 
@@ -93,7 +92,8 @@ official row**, so its price cannot be verified. GPT-5.6 Sol is on promotional p
 
 ## Mistral Large 4
 
-The Mistral domain offers only `mistral-large-4`. Pi's catalog price for it
+The Mistral domain offers Pi's whole catalog; this section is about the
+`mistral-large-4` row the verifier can match. Pi's catalog price for it
 ($0.68 input, $2.09 output, $0.07 cached input) is Mistral's current **sale** price;
 the regular price on the same page is $1.36 / $0.14 / $4.18, and no end date is
 listed. The verifier flags this as time-limited, and a catalog still on the regular
