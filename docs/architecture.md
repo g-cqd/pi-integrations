@@ -1,6 +1,6 @@
 # Architecture & Reusable Components
 
-`pi-integrations` is organized as **seven independent domain extensions** built on a single zero-endpoint shared library (`src/shared/`). Each domain registers its own provider or virtual models and can be loaded or filtered independently in Pi.
+`pi-integrations` is organized as **eight independent domain extensions** built on a single zero-endpoint shared library (`src/shared/`). Each domain registers its own provider or virtual models and can be loaded or filtered independently in Pi.
 
 ```text
 ┌───────────────────────────────────────────────────────────────────────────┐
@@ -23,6 +23,8 @@
                     │  credentials · jwt · loopback           │   │ Models Bridge│
                     └─────────────────────────────────────────┘   └──────────────┘
 ```
+
+The diagram groups remote domains schematically; the independent `copilot-vscode` provider also uses `src/shared/`, without replacing Pi's built-in `github-copilot`. It has no Copilot-specific live quota probe.
 
 ---
 
@@ -48,6 +50,7 @@
 | Domain | Directory | What It Owns | How Inference Runs |
 | --- | --- | --- | --- |
 | **Claude** | `src/domains/claude/` | PKCE OAuth (`claude.com` → `platform.claude.com`), system-prompt subscription gate (`gate.ts`), and 4xx protocol-drift diagnostics (`diagnostics.ts`). | Delegates to Pi's `anthropicMessagesApi`, wrapped by `subscriptionGateStreamSimple`. |
+| **Copilot** | `src/domains/copilot/` | Source-derived VS Code GitHub device auth, Copilot session-token exchange, trusted API endpoint selection, and account catalog. Not live-validated or exact VS Code parity. | Custom `copilot-vscode-chat` dispatch selects generic Pi Responses, Messages or Completions adapters with pinned Bearer auth. See [limits](domains/copilot.md). |
 | **Codex** | `src/domains/codex/` | ChatGPT PKCE OAuth (loopback `:1455`, paste fallback, and device-code flow) + live `/backend-api/codex/models` catalog with static fallback. | Delegates to Pi's `openAICodexResponsesApi`. |
 | **Antigravity** | `src/domains/agy/` | Google Desktop PKCE OAuth, automatic in-memory `agy` binary secret resolver, `loadCodeAssist`, `fetchAvailableModels`, and `antigravity/cli/` UA gate. | Custom `cloudcode-pa` SSE streamer (`stream.ts`) built with Pi's exported Google message/tool converters. |
 | **Spettro** | `src/domains/spettro/` | Browser device-session initiation, polling, and live `/v1/models` catalog discovery + persistence. | Delegates to Pi's `openAICompletionsApi` (`supportsDeveloperRole: false`). |

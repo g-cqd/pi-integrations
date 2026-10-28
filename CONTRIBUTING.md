@@ -22,6 +22,8 @@ Each domain can be tested in isolation:
 | --- | --- |
 | Shared primitives (`src/shared`) | `bun run test:shared` |
 | Claude Subscription (`src/domains/claude`) | `bun run test:claude` |
+| Copilot, VS Code-style (`src/domains/copilot`) | `bun run test:copilot` |
+| Copilot curated mutation campaign | `bun run test:copilot:mutation` |
 | Codex Subscription (`src/domains/codex`) | `bun run test:codex` |
 | Antigravity (`src/domains/agy`) | `bun run test:agy` |
 | Spettro (`src/domains/spettro`) | `bun run test:spettro` |
@@ -29,7 +31,7 @@ Each domain can be tested in isolation:
 | Decision Router & Apple Foundation Models | `bun run test:decision-router` |
 | Package & Harness Contracts | `bun run test:contracts` |
 
-Run `bun run verify:pricing` (requires network access) after touching a model catalog or pricing parser.
+Run `bun run verify:pricing` (requires network access) after touching a model catalog or pricing parser. For the independent Copilot pricing snapshot, also run `bun run verify:copilot-pricing`; its runtime updater uses GitHub’s Copilot rates rather than vendor API rates.
 
 ---
 
@@ -41,6 +43,7 @@ Run `bun run verify:pricing` (requires network access) after touching a model ca
 4. **Never Commit Captures or Credentials:** Never commit raw proxy captures, account exports, OAuth tokens, client secrets, browser authorization strings, or session transcripts. `test/agy/no-bundled-secret.test.ts` scans all tracked files across plaintext, `base64`, `base64url`, `hex`, reversed strings, and concatenated literals.
 5. **Distinguish Evidence Levels:** In code comments and `docs/`, state clearly whether a protocol claim comes from:
    - **Live measurement / bisection** (e.g. the Antigravity `antigravity/cli/` User-Agent gate, Claude prompt classifier rules, Apple Foundation Models Swift bridge execution),
+   - **Public source inspection** (pin revisions and distinguish the client implementation from unverified server behavior),
    - **Binary / descriptor extraction** (e.g. protobuf descriptors or CLI string tables), or
    - **Unverified inference** (must degrade safely on failure).
 

@@ -8,6 +8,7 @@ import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-age
 import claude from "../../src/domains/claude/index.ts";
 import spettro from "../../src/domains/spettro/index.ts";
 import mistral from "../../src/domains/mistral-vibe/index.ts";
+import copilot from "../../src/domains/copilot/index.ts";
 import codex from "../../src/domains/codex/index.ts";
 import agy from "../../src/domains/agy/index.ts";
 import { createProviderConfig } from "../../src/domains/claude/provider.ts";
@@ -20,6 +21,7 @@ import manifest from "../../package.json" with { type: "json" };
 function fakePi() {
 	const providers = new Map<string, ProviderConfig>();
 	const pi = {
+		on: () => () => {},
 		registerProvider: (id: string, config: ProviderConfig) => {
 			assert.ok(!providers.has(id), `duplicate provider ${id}`);
 			providers.set(id, config);
@@ -28,7 +30,7 @@ function fakePi() {
 	return { pi, providers };
 }
 
-for (const [name, entry, id] of [["claude", claude, "claude-subscription"], ["codex", codex, "codex-subscription"], ["agy", agy, "agy-subscription"], ["spettro", spettro, "spettro"], ["mistral-vibe", mistral, "mistral-vibe"]] as const) {
+for (const [name, entry, id] of [["claude", claude, "claude-subscription"], ["codex", codex, "codex-subscription"], ["agy", agy, "agy-subscription"], ["spettro", spettro, "spettro"], ["mistral-vibe", mistral, "mistral-vibe"], ["copilot", copilot, "copilot-vscode"]] as const) {
 	test(`${name} can register independently without network or other providers`, () => {
 		const f = fakePi();
 		const network = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async () => { throw new Error("Unexpected network at registration"); }, { preconnect: () => { throw new Error("Unexpected preconnect"); } }));
@@ -42,14 +44,14 @@ for (const [name, entry, id] of [["claude", claude, "claude-subscription"], ["co
 
 test("all domains coexist without replacing built-in providers or sharing provider IDs", () => {
 	const f = fakePi();
-	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi);
-	assert.deepEqual([...f.providers.keys()], ["claude-subscription", "codex-subscription", "agy-subscription", "spettro", "mistral-vibe"]);
-	for (const builtIn of ["mistral", "openai", "openai-codex", "anthropic", "google"]) assert.ok(!f.providers.has(builtIn), `${builtIn} stays Pi's own`);
+	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi); copilot(f.pi);
+	assert.deepEqual([...f.providers.keys()], ["claude-subscription", "codex-subscription", "agy-subscription", "spettro", "mistral-vibe", "copilot-vscode"]);
+	for (const builtIn of ["mistral", "openai", "openai-codex", "anthropic", "google", "github-copilot"]) assert.ok(!f.providers.has(builtIn), `${builtIn} stays Pi's own`);
 });
 
 test("sign-in is the only credential path: no registered provider declares API-key configuration", () => {
 	const f = fakePi();
-	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi);
+	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi); copilot(f.pi);
 	for (const [id, config] of f.providers) {
 		assert.equal(config.apiKey, undefined, `${id} must not declare an apiKey`);
 		assert.ok(config.oauth, `${id} must offer a sign-in`);
@@ -76,7 +78,7 @@ test("manifest loads all domain entry points", () => {
 	assert.deepEqual(manifest.pi.extensions, [
 		"./src/domains/claude/index.ts", "./src/domains/codex/index.ts", "./src/domains/agy/index.ts",
 		"./src/domains/spettro/index.ts", "./src/domains/mistral-vibe/index.ts",
-		"./src/domains/apple-foundation/index.ts", "./src/domains/decision-router/index.ts",
+		"./src/domains/copilot/index.ts", "./src/domains/apple-foundation/index.ts", "./src/domains/decision-router/index.ts",
 	]);
 	assert.equal(manifest.packageManager, "bun@1.4.3");
 });
@@ -117,7 +119,7 @@ for (const name of ["claude", "codex", "agy", "spettro", "mistral-vibe"] as cons
 
 test("every domain's registered config is complete enough for Pi to use", () => {
 	const f = fakePi();
-	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi);
+	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi); copilot(f.pi);
 	for (const [id, config] of f.providers) {
 		assert.equal(typeof config.name, "string", `${id} needs a name`);
 		assert.ok((config.name as string).length > 0, `${id} needs a non-empty name`);
@@ -145,19 +147,19 @@ test("the subscription domains declare isSubscription and the API-key domain omi
 	// service-issued API key with no refresh grant; declaring it as a
 	// subscription would promise Pi a rotating refresh token that never comes.
 	const f = fakePi();
-	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi);
-	for (const id of ["claude-subscription", "codex-subscription", "agy-subscription", "spettro"]) {
+	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi); copilot(f.pi);
+	for (const id of ["claude-subscription", "codex-subscription", "agy-subscription", "spettro", "copilot-vscode"]) {
 		assert.equal(f.providers.get(id)!.oauth!.isSubscription, true, `${id} is subscription sign-in`);
 	}
 	assert.equal(f.providers.get("mistral-vibe")!.oauth!.isSubscription, undefined,
 		"mistral-vibe is API-key, so it must not claim a subscription");
 });
 
-test("each domain receives a non-empty model list from Pi's own catalogs", () => {
-	// models is injected by index.ts, not by the domain, so an empty catalog in
-	// Pi would silently produce a provider that lists nothing at all.
+test("each domain initially exposes a catalog or a guarded placeholder", () => {
+	// Static catalogs and account-discovery placeholders must both be visible
+	// at registration; network discovery must not be needed just to list a provider.
 	const f = fakePi();
-	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi);
+	claude(f.pi); codex(f.pi); agy(f.pi); spettro(f.pi); mistral(f.pi); copilot(f.pi);
 	for (const [id, config] of f.providers) {
 		const models = config.models ?? [];
 		assert.ok(models.length > 0, `${id} must list at least one model`);
@@ -169,6 +171,7 @@ test("each domain receives a non-empty model list from Pi's own catalogs", () =>
 	// Antigravity starts as a placeholder until refreshModels discovers the account's.
 	assert.deepEqual((f.providers.get("agy-subscription")!.models ?? []).map((m) => m.id), ["agy-catalog-loading"]);
 	assert.deepEqual((f.providers.get("spettro")!.models ?? []).map((m) => m.id), ["spettro-catalog-loading"]);
+	assert.deepEqual((f.providers.get("copilot-vscode")!.models ?? []).map((m) => m.id), ["copilot-catalog-loading"]);
 });
 
 test("each index returns a live Pi event stream from streamSimple", () => {

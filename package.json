@@ -40,6 +40,9 @@
     "verify:pricing": "bun scripts/verify-pricing.ts",
     "agy:extract-secret": "bun scripts/extract-agy-client-secret.ts",
     "test:codex": "bun test test/codex",
+    "test:copilot": "bun test test/copilot",
+    "test:copilot:mutation": "bun scripts/mutate-copilot.ts",
+    "verify:copilot-pricing": "bun scripts/copilot-pricing.ts",
     "test:agy": "bun test test/agy",
     "test:decision-router": "bun test test/decision-router"
   },
@@ -58,6 +61,7 @@
     "./domains/spettro": "./src/domains/spettro/provider.ts",
     "./domains/mistral-vibe": "./src/domains/mistral-vibe/provider.ts",
     "./domains/codex": "./src/domains/codex/provider.ts",
+    "./domains/copilot": "./src/domains/copilot/provider.ts",
     "./domains/agy": "./src/domains/agy/provider.ts",
     "./domains/apple-foundation": "./src/domains/apple-foundation/provider.ts",
     "./domains/decision-router": "./src/domains/decision-router/router.ts"
@@ -69,6 +73,7 @@
       "./src/domains/agy/index.ts",
       "./src/domains/spettro/index.ts",
       "./src/domains/mistral-vibe/index.ts",
+      "./src/domains/copilot/index.ts",
       "./src/domains/apple-foundation/index.ts",
       "./src/domains/decision-router/index.ts"
     ]

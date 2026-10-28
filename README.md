@@ -11,7 +11,7 @@ Modular subscription, local-model, and decision-routing integrations for [Pi](ht
 
 ## Highlights
 
-- **Seven Independently Loadable Domains** — Claude, OpenAI Codex, Google Antigravity (`agy`), Spettro, Mistral Vibe, On-Device Apple Foundation Models (`FoundationModels`), and a synthetic System One **Decision Router**.
+- **Eight Independently Loadable Domains** — Claude, OpenAI Codex, Google Antigravity (`agy`), Spettro, Mistral Vibe, experimental VS Code-style Copilot, On-Device Apple Foundation Models (`FoundationModels`), and a synthetic System One **Decision Router**.
 - **System One Decision Routing (`decision-router`)** — Pairs zero-token single-pass semantic classification (`vllm-d3-lite`, `Laya`, `Jev`) with a multi-objective utility scorer that weighs **estimated accuracy**, **estimated latency**, **live subscription quota headroom**, **per-token pricing**, **zero-cost model promotion**, and **prompt-cache stickiness**.
 - **On-Device Apple Foundation Models (`apple-foundation`)** — Zero-cost, private local 3B inference on macOS 26+ Apple Silicon via a cached native Swift bridge (`apple-fm-bridge-v2`), auto-enabled out of the box and exposing every active Pi tool and its full JSON Schema options via `@Generable` guided generation.
 - **Zero Bundled Secrets** — Every remote domain signs in through `/login`. Antigravity's desktop OAuth client secret is automatically discovered in memory from your installed `agy` binary and verified against Google's token endpoint without ever being committed or written to disk.
@@ -29,6 +29,7 @@ Modular subscription, local-model, and decision-routing integrations for [Pi](ht
 | **Codex Subscription** | `codex-subscription` | ChatGPT browser callback (`:1455` / paste) or headless device code | Live account catalog (`/backend-api/codex/models`) with automatic fallback to Pi's static Codex catalog | [docs/domains/codex.md](docs/domains/codex.md) |
 | **Antigravity (`agy`)** | `agy-subscription` | Google OAuth pasted code + automatic local binary client-secret discovery | Live Cloud Code catalog (`gemini-4-argon-*`, `gemini-3.8-flash-*`, `claude-opus-5-5-*`, `claude-sonnet-5-5-*`, `gpt-oss-120b-medium`) | [docs/domains/agy.md](docs/domains/agy.md) |
 | **Spettro** | `spettro` | Browser device session + polling | Live `/v1/models` catalog discovered from your signed-in account | [docs/domains/spettro.md](docs/domains/spettro.md) |
+| **Copilot (VS Code-style)** | `copilot-vscode` | GitHub device approval using the source-published VS Code OAuth client | Account catalog + Responses / Messages / Chat Completions; official Copilot pricing with cached refresh; quota footer bar (live quota/billing parity unverified) | [docs/domains/copilot.md](docs/domains/copilot.md) |
 | **Mistral Vibe** | `mistral-vibe` | Browser approval + PKCE polling/exchange | Service-issued API key scoped to **Mistral Large 4** (`mistral-large-4`, 1M context) | [docs/domains/mistral-vibe.md](docs/domains/mistral-vibe.md) |
 
 > [!IMPORTANT]
@@ -55,7 +56,7 @@ pi install git:github.com/g-cqd/pi-integrations
 pi
 ```
 
-Pi auto-loads all seven domain entry points listed in `package.json`.
+Pi auto-loads all eight domain entry points listed in `package.json`.
 
 <details>
 <summary><strong>Local checkout or selective domain loading</strong></summary>
@@ -96,6 +97,7 @@ Run **`/login`** inside Pi to authenticate the subscriptions you use:
 - **Codex Subscription (experimental)** — choose **Browser sign-in** (auto-completes via loopback `:1455` or pasted redirect URL if port 1455 is busy) or **Device code sign-in** for headless machines.
 - **Antigravity Subscription (experimental)** — automatically discovers and verifies the OAuth client secret from your installed `agy` binary (or `AGY_OAUTH_CLIENT_SECRET`), opens the Google sign-in link, and resolves your Cloud Code project (`aicode-consumers`).
 - **Spettro Subscription** — opens the browser approval link and polls until your device key is issued.
+- **Copilot — VS Code-style (experimental)** — GitHub device approval, Copilot session-token exchange, then account model discovery. Independent of Pi's built-in `github-copilot`; [limitations and validation plan](docs/domains/copilot.md).
 - **Mistral Vibe (experimental)** — opens the Mistral Console approval link and exchanges the PKCE grant for a key.
 - **Apple Foundation Models (On-Device)** — already auto-enabled on macOS 26+ Apple Silicon; running `/login` explicitly verifies `SystemLanguageModel.default.availability` and saves the marker credential.
 
@@ -153,6 +155,7 @@ src/
   domains/
     claude/                 OAuth PKCE + subscription inference gate + drift diagnostics
     codex/                  ChatGPT OAuth (loopback + device code) + live /codex/models catalog
+    copilot/                Source-derived VS Code-style auth + Copilot session/catalog transport
     agy/                    Google OAuth + in-memory binary secret discovery + cloudcode-pa stream
     spettro/                Device-session polling + live /v1/models catalog
     mistral-vibe/           Console PKCE polling + API-key exchange (Mistral Large 4)
@@ -172,6 +175,7 @@ scripts/
   - [Decision Router & Apple Foundation Models](docs/domains/decision-router.md)
   - [Claude Subscription](docs/domains/claude.md)
   - [Codex Subscription](docs/domains/codex.md)
+  - [Copilot — VS Code-style (experimental)](docs/domains/copilot.md)
   - [Antigravity (`agy`) Subscription](docs/domains/agy.md)
   - [Spettro Subscription](docs/domains/spettro.md)
   - [Mistral Vibe](docs/domains/mistral-vibe.md)
